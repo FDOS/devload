@@ -3,14 +3,14 @@
 
 ;       TITLE   DEVLOAD         to load device drivers from command line.
 ;       FORMAT  EXE		; *** changed to COM in 3.12/newer ***
-;       VERSION 3.16
+;       VERSION 3.17
 ;       CODE    80x86
 ;       OPTIONS /ML
 ;       TIME    CHECK
 ;       DATE    12/3/92 - 31/3/98
 ;       AUTHOR  David Woodhouse
 ;        (C) 1992, 1993 David Woodhouse.
-;	Patches for 3.12 to 3.16: 2004 and 2005 by Eric Auer
+;	Patches for 3.12 to 3.16, 3.17: 2004 and 2005, 2007 by Eric Auer
 
 ; EXPLANATION...
 ;       The program first relocates itself to the top of the available memory
@@ -129,12 +129,14 @@
 ;	message and the message which tells whether /H (UMB) worked.
 ;	Inspired by Erwin Veermans' patches.
 
-; Version 3.16 04/11/2005 - contributed patches and some cleaning
+; Version 3.16 4/11/2005 - contributed patches and some cleaning
 ;	improved TASM compile (normal DEVLOAD compiler is ArrowASM),
 ;	fixed the "UMB needs DOS 5+" version check, improved texts.
 ;	comment style: added spaces after ; where ; starts a comment.
 ;	Added some "short" and "ds:" as suggested by Diego Rodriguez.
 ;	DR DOS version check based on research by Diego Rodriguez.
+
+; Version 3.16 9/5/2007 - allocate more space for DPB if DOS 7+ (FAT32)
 
 ; .............................IMPROVEMENT IDEAS.............................
 
@@ -1570,9 +1572,9 @@ LASTBYTE        equ     $
 
 ; ................DATA WHICH ISN'T NEEDED AFTER RELOCATION...................
 
-SignOnMsg       db 'DEVLOAD v3.16 (C) 1992 - 1996 David Woodhouse '
+SignOnMsg       db 'DEVLOAD v3.17 (C) 1992 - 1996 David Woodhouse '
                 db ' <Dave@imladris.demon.co.uk>',13,10
-		db ' Patches for v3.12-3.16 by Eric Auer 2004/2005'
+		db ' Patches for v3.12-3.17 by Eric Auer 2004-2007'
 		db ' <Eric*CoLi.uni-sb.de>',13,10
                 db ' Loads device drivers from the shell.',13,10
 ; kind of obvious...:	db ' Needs DOS 3 or newer.'
@@ -1671,13 +1673,26 @@ ver3:		; DR DOS up to 7.00 "are DOS 3.31" but pre-DR-6.0 fail:
 		cmp	al,71h		; first tested-to-work kernel
 		jb	badver		; 72h+ report MS version 6...
 
+; DOS CDS (current directory structure) array has LASTDRIVE entries of
+; 58h bytes each, 51h for DOS 3.x ... DOS Block headers are the DPB
+; (drive parameter block) items, 20h bytes in DOS 3.x, 21h in 4.0-6.0
+; FAT32 DPB start like FAT1x ones, but are 1ch bytes longer ... (3.17)
 realver3:	mov     LDrSize,51h
 		mov     byte ptr BlHSize,20h
 		mov     NextBlHOfs,18h
+		jmp	short classicver
+
+okver:		cmp	al,7			; new 3.17
+		jb	classicver
+
+	; FAT32 aware version: larger DPB, but same DPB pointer / CDS size
+		mov     byte ptr BlHSize,003dh	; new 3.17
+
+classicver:
 
         ; Check command line.
 
-okver:          mov     ds,PSPSeg
+                mov     ds,PSPSeg
                 xor     bh,bh
                 mov     bl,byte ptr ds:[80h]
                 or      bx,bx
