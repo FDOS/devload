@@ -3,14 +3,14 @@
 
 ;       TITLE   DEVLOAD         to load device drivers from command line.
 ;       FORMAT  EXE		; *** changed to COM in 3.12/newer ***
-;       VERSION 3.17
+;       VERSION 3.18
 ;       CODE    80x86
 ;       OPTIONS /ML
 ;       TIME    CHECK
 ;       DATE    12/3/92 - 31/3/98
 ;       AUTHOR  David Woodhouse
 ;        (C) 1992, 1993 David Woodhouse.
-;	Patches for 3.12 to 3.16, 3.17: 2004 and 2005, 2007 by Eric Auer
+;	Patches for 3.12 to 3.16, 3.17 / 3.18: 2004 to 2005, 2007 by Eric Auer
 
 ; EXPLANATION...
 ;       The program first relocates itself to the top of the available memory
@@ -136,7 +136,13 @@
 ;	Added some "short" and "ds:" as suggested by Diego Rodriguez.
 ;	DR DOS version check based on research by Diego Rodriguez.
 
-; Version 3.16 9/5/2007 - allocate more space for DPB if DOS 7+ (FAT32)
+; Version 3.17 9/5/2007  - Eric: more RAM for DPB if DOS 7+ (FAT32)
+
+; Version 3.18 11/5/2007 - Alexey: use magic CX / DX to build ext DPB
+;                          (int 21.53), use true instead of setver
+;                          version if DOS 5+, provide make.bat file.
+;                        - Eric: Tuned messages to get 3069 byte .com
+;                          (with UPX 2.02d --8086 --best)
 
 ; .............................IMPROVEMENT IDEAS.............................
 
@@ -1335,10 +1341,16 @@ noprintblhmsg:  lds     bx,Invar
                 mov     es:[bp],0FFFFh
                 sub     bp,cs:word ptr NextBlHOfs
 
-        ; Expand BPB into block header.
-
-                mov     ah,53h                 ; hello woody y doesnt this work
+        ; Expand BPB into block header
+        ; *** Extended in DEVLOAD 3.18: use magic CX/DX ***
+		push	cx            ; Save registers
+;		push    dx            ;
+		mov	cx, 4558h     ; Signature for calling
+		mov	dx, 4152h     ; FAT32 extension
+                mov     ah,53h        ; convert BPB to DPB
                 int     21h
+;		pop	dx            ; Restore registers
+		pop	cx            ;
 
         ; Point ES:BP to location of next block header.
 
@@ -1446,7 +1458,7 @@ nosegchange:    cmp     si,0FFFFh
 
 StayingMsg      db 'Driver staying resident.',13,10,24h
 FNameMsg        db 'Filename: $'
-LoadAddrMsg     db 'Load address: $'
+LoadAddrMsg     db 'Loaded at: $'
 InitRetMsg      db 'Init status: $'
 SizeMsg         db 'Driver size in paras: $'
 IntChangeMsg    db 'Int vectors changed: $'
@@ -1459,14 +1471,14 @@ CrLfMsg         db 13,10,24h
 LastDrMsg       db 13,10,'Last used drive: '
 LDMsgA          db 'A:',13,10,'LASTDRIVE: '
 LDMsgB          db 'A:',13,10,24h
-BlHdrMsg        db 'Block header for '
+BlHdrMsg        db 'DPB for '
 BlHdrMsgA       db 'A: at $'
 NumBlInstMsg    db '0 drives$'
-NumChInstMsg    db '0 character device$'
+NumChInstMsg    db '0 char device$'
 NumInstMsgA     db 's installed.',13,10,24h
-LDrErrMsg       db '0 drive(s) skipped - LASTDRIVE too small.',13,10,24h
-AskEndMsg       db 13,10,'No drives or INTs - unload (Y/N) ? $'
-SSizeErrMsg     db 'Sector size too large, drive(s) skipped.',13,10,24h
+LDrErrMsg       db '0 drives skipped - LASTDRIVE too small.',13,10,24h
+AskEndMsg       db 13,10,'No drives or Ints - unload (Y/N) ? $'
+SSizeErrMsg     db 'Sector size too large, drives skipped.',13,10,24h
 
         ; Error messages.
 
@@ -1486,11 +1498,11 @@ TooBigMsg       db 13,10,'Error: Driver wants too much memory.',13,10,24h
         ; Error cause messages.
 
 Err2            db 'h - File not found)',13,10,24h
-Err3            db "h - Directory not found)",13,10,24h
+Err3            db "h - Dir not found)",13,10,24h
 Err5            db 'h - Access denied)',13,10,24h
-Err7            db 'h - Arena header corrupted)',13,10,24h
+Err7            db 'h - Arena header bad)',13,10,24h
 Err8            db 'h - Out of memory)',13,10,24h
-Err9            db 'h - Wrong segment passed!)',13,10,24h
+Err9            db 'h - Wrong seg?)',13,10,24h
 ; ***           db ' PLEASE INFORM THE AUTHOR!',13,10,24h
 ErrB            db 'h - Format invalid)',13,10,24h
 ErrUnknown      db 'h'
@@ -1572,10 +1584,10 @@ LASTBYTE        equ     $
 
 ; ................DATA WHICH ISN'T NEEDED AFTER RELOCATION...................
 
-SignOnMsg       db 'DEVLOAD v3.17 (C) 1992 - 1996 David Woodhouse '
+SignOnMsg       db 'DEVLOAD v3.18 (C) 1992 - 1996 David Woodhouse '
                 db ' <Dave@imladris.demon.co.uk>',13,10
-		db ' Patches for v3.12-3.17 by Eric Auer 2004-2007'
-		db ' <Eric*CoLi.uni-sb.de>',13,10
+		db ' Patches for v3.12-3.18 by Eric Auer 2004-2007'
+		db ' <Eric*coli.uni-sb.de>',13,10
                 db ' Loads device drivers from the shell.',13,10
 ; kind of obvious...:	db ' Needs DOS 3 or newer.'
 		db 13,10,24h
@@ -1682,11 +1694,19 @@ realver3:	mov     LDrSize,51h
 		mov     NextBlHOfs,18h
 		jmp	short classicver
 
-okver:		cmp	al,7			; new 3.17
+okver:		; Check FAT32 compatibility: VER >= 7.01
+		; (new in 3.17, extended in 3.18)
+		cmp	al,5	 ; new 3.17
 		jb	classicver
+		mov	ax,3306h ; Get true DOS version
+		int	21h
+		mov	cl,8     ; Swap BH and BL
+		ror	bx,cl    ; 
+		cmp	bx,0701h ; VER >= 7.01 ?
+		jb	classicver		
 
 	; FAT32 aware version: larger DPB, but same DPB pointer / CDS size
-		mov     byte ptr BlHSize,003dh	; new 3.17
+		mov     byte ptr BlHSize,003Dh	; new 3.17
 
 classicver:
 
