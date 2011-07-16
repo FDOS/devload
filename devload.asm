@@ -1,16 +1,37 @@
 ; .....................PROGRAM HEADER FOR PROJECT BUILDER....................
 
-
 ;       TITLE   DEVLOAD         to load device drivers from command line.
 ;       FORMAT  EXE		; *** changed to COM in 3.12/newer ***
-;       VERSION 3.20
+;       VERSION 3.21
 ;       CODE    80x86
-;       OPTIONS /ML
+;       OPTIONS /ML		; *** NASM -o devload.com in 3.21/newer ***
 ;       TIME    CHECK
 ;       DATE    12/3/92 - 31/3/98
 ;       AUTHOR  David Woodhouse
+
 ;        (C) 1992, 1993 David Woodhouse.
-;	Patches for 3.12 to 3.16, 3.17 - 3.20: 2004 to 2005, 2007 by Eric Auer
+;	Patches for 3.12 to 3.16, 3.17 - 3.19: 2004 to 2005, 2007 by Eric Auer
+;	Patch for 3.20: 2007 by Alexey and Eric Auer
+;       Patch for 3.21: 2008 by Eric Auer
+
+
+;  Devload - a tool to load DOS device drivers from the command line
+;        Copyright (c) 1992-2008 David Woodhouse and Eric Auer
+;
+;  This program is free software; you can redistribute it and/or modify
+;  it under the terms of the GNU General Public License as published by
+;  the Free Software Foundation; either version 2 of the License, or
+;  (at your option) any later version.
+;
+;   This program is distributed in the hope that it will be useful,
+;   but WITHOUT ANY WARRANTY; without even the implied warranty of
+;   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;   GNU General Public License for more details.
+;
+;   You should have received a copy of the GNU General Public License along
+;   with this program; if not, write to the Free Software Foundation, Inc.,
+;   51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+
 
 ; EXPLANATION...
 ;       The program first relocates itself to the top of the available memory
@@ -150,8 +171,16 @@
 ;                          for unlikely messages. Shorten help a bit.
 
 ; Version 3.20 13/9/2007 - Alexey: added EDR-DOS support
-;                          (for version WIP 17.6.2007 and newer ONLY!)
+;                          (EDR DOS WiP 17.6.2007 and newer ONLY!)
 ;                          added fmake.bat & readme.txt
+
+; Version 3.21 25/6/2007 - Eric: Converted to NASM with help of NoMySo
+;                          script by Michael Devore, removed fmake...
+;                          (ASM / NASM pick other direction variant in
+;                          mov/xor/cmp/or/add/sub reg,reg machine code)
+;                          WantedParas handling: check how much RAM/UMB
+;                          driver needs at least. Tuned messages again.
+;                          GNU GPL info (see infradead.org) added here.
 
 ; .............................IMPROVEMENT IDEAS.............................
 
@@ -166,7 +195,7 @@
 ; ................................DEFINES....................................
 
 STACKLEN        equ     200h	; *** only used in .exe version ***
-SMALLESTDRIVER  equ     100h	; alloc. min 4k (100h paras) for driver
+; SMALLESTDRIVER  equ     100h	; alloc. min 4k (100h paras) for driver
 
 QuietFlag       equ     80h
 VerboseFlag     equ     40h
@@ -175,11 +204,10 @@ UMBFlag		equ	10h	; *** added 2004 ***
 
 ; ............................CODE (at last).................................
 
-CSeg    segment public  byte    'CODE'
+SEGMENT	CSeg	; xxx	public  ALIGN=1  CLASS=CODE
 
         org     100h	; *** was 0 for .exe version ***
 
-        assume  cs:CSeg, ds:CSeg, es:CSeg
 
 ; ............CODE TO BE EXECUTED ONCE RELOCATED TO TOP OF MEMORY............
 
@@ -192,14 +220,14 @@ Main0:	jmp Main	; *** get right entry point for .com version ***
         ; Get old PSP segment, store new PSP segment.
 
 relocated:      push    es
-                mov     es,PSPSeg
-                pop     PSPSeg
+                mov     es,[PSPSeg]
+                pop     WORD [PSPSeg]
 
         ; Push segment of environment.
 
         ; DS:TopCSeg, ES:PSPSeg
 
-                push    es:[002Ch]
+                push    word [es:002Ch]
 
         ; Release old PSP segment.	*** seems to trash DEBUG ***
 
@@ -209,11 +237,11 @@ relocated:      push    es
 
         ; Failed to release PSP - print error.
 
-                mov     dx,offset RelPSPErrMsg
+                mov     dx,RelPSPErrMsg
                 call    PrintError
                 mov     ah,9
                 int     21h
-                mov     dx,offset CrLfMsg
+                mov     dx,CrLfMsg
                 mov     ah,9
                 int     21h
 
@@ -228,11 +256,11 @@ relPSPok:       pop     es
 
         ; Failed to release environment - print error.
 
-                mov     dx,offset RelEnvErrMsg
+                mov     dx,RelEnvErrMsg
                 call    PrintError
                 mov     ah,9
                 int     21h
-                mov     dx,offset CrLfMsg
+                mov     dx,CrLfMsg
                 mov     ah,9
                 int     21h
 
@@ -242,18 +270,18 @@ relenvok:       push    cs
 				; *** added UMB alloc strategy selection ***
                 mov     ax,5800h	; get current alloc strat
                 int     21h
-                mov     OldAllocStrat,ax
+                mov     [OldAllocStrat],ax
 
-		mov	bx, 0ffffh	; max. amount if loading LOW
+		mov	bx, 0ffffh	; max. amount 1 MB if loading LOW
 		mov	bp,1		; default: no special UMB link state
 
-		test	byte ptr ModeFlag, UMBFlag
+		test	byte [ModeFlag], UMBFlag
 		jz	lowload
 
 				; *** added because of UMB alloc strat ***
-                mov     ax,5801h	; set (restore) alloc strat
-                mov     bx,80h		; first fit, try UMB first, low 2nd
-					; (4xh is only UMB, 00h iss low only)
+                mov     ax,5801h	; set alloc strat: UMB only
+                mov     bx,40h		; (8xh is try UMB first, low 2nd)
+					; (4xh is only UMB, 00h is low only)
 					; (x0h first, x1h best, x2h last fit)
                 int     21h
 		mov	ax,5802h	; get UMB link state
@@ -262,7 +290,20 @@ relenvok:       push    cs
 		mov	ax,5803h	; set UMB link state (!)
 		mov	bx,1		; make UMBs part of the DOS mem chain!
 		int	21h
-		mov	bx,0fffh	; never desire > 64k of UMBs
+;		mov	bx,0fffh	; never desire > 64k of UMBs
+		mov	bx,7fffh	; ask unrealistic size UMB
+		mov	ah,48h
+		int	21h
+
+	; this should always fail - add check if it really did here?
+	; BX now tells us how much we could have gotten - in UMB space
+
+		cmp	bx,[WantedParas]	; enough UMB free?
+		ja	sizeok		; then get as much as we can
+                mov     ax,5801h	; set new alloc strat: UMB first
+                mov     bx,80h		; (8xh is try UMB first, low 2nd)
+		int	21h
+		mov	bx,0ffffh	; ask unrealistic size, 1 MB
 
 lowload:			; *** end of added code ***
 
@@ -278,11 +319,12 @@ lowload:			; *** end of added code ***
                 jnc     grablowok	; esp. useful for UMB loading!
 
         ; BX now holds the maximum amount of memory available.
-        ; Don't install if less than 4K bytes available.
+        ; Don't install if less than [minimum required] available.
 
-                cmp     bx,SMALLESTDRIVER
-                ja      sizeok
-                mov     bx,SMALLESTDRIVER
+                cmp     bx,[WantedParas]	; SMALLESTDRIVER
+                ja      sizeok			; enough: get all we can
+                mov     bx,[WantedParas]	; else: get all we need
+						; (...and expect to fail)
 
         ; Attempt to grab memory for driver.
 
@@ -291,8 +333,8 @@ sizeok:         mov     ah,48h
                 jnc     grablowok
 
 				; *** added because of UMB alloc strat ***
-                mov     ax,5801h	; set (restore) alloc strat
-                mov     bx,OldAllocStrat
+                mov     ax,5801h	; set (here: restore) alloc strat
+                mov     bx,[OldAllocStrat]
 		mov	bh,0		; sanitize
 		int	21h
 		test	bp,1		; UMBs originally part of chain?
@@ -304,18 +346,18 @@ keepumbs:				; *** end of added part ***
 
         ; Failed to grab memory - print error and exit.
 
-                mov     dx,offset GrabLoErrMsg
+                mov     dx,GrabLoErrMsg
                 jmp     allocerr
 
         ; Store segment of device.
 
-grablowok:      mov     DvcSeg,ax
-		mov	DvcSeg+2,ax	; ALSO adjust relocation! 8/2007
-                mov     BlockSize,bx
+grablowok:      mov     [DvcSeg],ax
+		mov	WORD [DvcSeg+2],ax	; ALSO adjust relocation! 8/2007
+                mov     [BlockSize],bx
 
 				; *** added because of UMB alloc strat ***
-                mov     ax,5801h	; set (restore) alloc strat
-                mov     bx,OldAllocStrat
+                mov     ax,5801h	; set (here: restore) alloc strat
+                mov     bx,[OldAllocStrat]
 		mov	bh,0		; sanitize
 		int	21h
 		test	bp,1		; UMBs originally part of chain?
@@ -327,7 +369,7 @@ keepumbs2:				; *** end of added part ***
 
         ; Disable Ctrl-Break.
 
-                mov     dx,offset BreakHandler
+                mov     dx,BreakHandler
                 mov     ax,2523h
                 int     21h
 
@@ -338,24 +380,24 @@ keepumbs2:				; *** end of added part ***
                 mov     ds,bx
         ; DS:0000, ES:TopCSeg
                 mov     si,bx
-                mov     di,offset IntVectors
+                mov     di,IntVectors
                 mov     cx,200h
                 rep     movsw
 
         ; Parse parameters in same way as SYSINIT does.
 
-                mov     ds,cs:PSPSeg
+                mov     ds,[cs:PSPSeg]
 
         ; DS:TopPSPSeg, ES:TopCSeg
 
         ; Find end of filename in DI.
 
-                mov     di,cs:NamePtr
-                add     di,cs:NameLen
+                mov     di,[cs:NamePtr]
+                add     di,[cs:NameLen]
 
         ; Find end of command line in BX.
 
-                mov     bl,byte ptr ds:[80h]
+                mov     bl,byte [80h]
                 add     bx,81h
 
         ; Compare them.
@@ -365,12 +407,12 @@ keepumbs2:				; *** end of added part ***
 
         ; If they are the same, no parameters were given, so add a space.
 
-                mov     byte ptr [di],' '
+                mov     byte [di],' '
                 inc     bx
 
         ; Append CrLf to line.
 
-parmsgiven:     mov     word ptr [bx],0A0Dh
+parmsgiven:     mov     word [bx],0A0Dh
 
         ; Print 'Filename: ' if not in Quiet Mode.
 
@@ -378,22 +420,22 @@ parmsgiven:     mov     word ptr [bx],0A0Dh
                 pop     ds
 
 ;               test    ModeFlag,QuietFlag	; *** phase error! ***
-                test    byte ptr ModeFlag,QuietFlag	; ***
+                test    byte [ModeFlag],QuietFlag	; ***
                 jnz     noprintfname
 
-                mov     dx,offset FNameMsg
+                mov     dx,FNameMsg
                 mov     ah,9
                 int     21h
 
         ; Make filename ASCII$ instead of ASCIIZ for printing.
 
-                mov     di,offset NameBuffer
+                mov     di,NameBuffer
                 mov     dx,di
                 mov     cx,80h
                 xor     al,al
                 repnz   scasb
                 dec     di
-                mov     byte ptr [di],'$'
+                mov     byte [di],'$'
 
         ; Print filename.
 
@@ -401,26 +443,26 @@ parmsgiven:     mov     word ptr [bx],0A0Dh
 
         ; Restore to ASCIIZ.
 
-                mov     byte ptr [di],0
+                mov     byte [di],0
 
         ; Print CrLf after filename.
 
-                mov     dx,offset CrLfMsg
+                mov     dx,CrLfMsg
                 int     21h
 
         ; Load driver file into memory.
 
         ; DS:TopCSeg, ES:TopCSeg
 
-noprintfname:   mov     dx,offset NameBuffer
-                mov     bx,offset DvcSeg
+noprintfname:   mov     dx,NameBuffer
+                mov     bx,DvcSeg
                 mov     ax,4B03h	; load overlay
                 int     21h
                 jnc     loadedok
 
         ; Print 'EXEC failure'.
 
-                mov     dx,offset NotLoadMsg
+                mov     dx,NotLoadMsg
                 push    ax
 
         ; Restore error code.
@@ -447,54 +489,54 @@ exit:           mov     ax,4C00h
 
         ; Check whether to print load address.
 
-loadedok:       test    byte ptr ModeFlag,VerboseFlag	; *** byte ptr ***
+loadedok:       test    byte [ModeFlag],VerboseFlag	; *** byte ptr ***
                 jz      noprintladdr
 
         ; Print 'Load address:'
 
-                mov     dx,offset LoadAddrMsg
+                mov     dx,LoadAddrMsg
                 mov     ah,9
                 int     21h
 
         ; Print segment of driver.
 
-                mov     ax,DvcSeg
+                mov     ax,[DvcSeg]
                 call    PHWord
 
         ; Print ':0000'
 
-                mov     dx,offset Colon0Msg
+                mov     dx,Colon0Msg
                 mov     ah,9
                 int     21h
 
         ; DS:TopCSeg, ES:TopCSeg
 
-        ; Get pointer to 'invar'
+        ; Get pointer to 'invar' (list of lists)
 
 noprintladdr:   mov     ah,52h
                 int     21h
 
         ; Store for later use.
 
-                mov     InvarOfs,bx
-                mov     InvarSeg,es
+                mov     [InvarOfs],bx
+                mov     [InvarSeg],es
 
         ; DS:TopCSeg, ES:InvarSeg
 
-        ; Fetch LastDrUsed and LastDrive from 'invar'
+        ; Fetch LastDrUsed and LastDrive from 'invar' (list of lists)
 
-                mov     ax,es:[bx+20h]
-                mov     word ptr LastDrUsed,ax
+                mov     ax,[es:bx+20h]
+                mov     word [LastDrUsed],ax
 
-        ; Fetch max. sector size from 'invar'
+        ; Fetch max. sector size from 'invar' (list of lists)
 
-                mov     ax,es:[bx+10h]
-                mov     SecSize,ax
+                mov     ax,[es:bx+10h]
+                mov     [SecSize],ax
 
                 push    es
                 pop     ds
 
-        ; Trace device chain from 'invar'.
+        ; Trace device chain from 'invar'. (list of lists)
 
         ; Point DS:DI to first block header.
 
@@ -506,31 +548,31 @@ notlast:        lds     si,[si]
 
         ; Point to pointer within block header to the next one.
 
-                add     si,cs:word ptr NextBlHOfs
+                add     si,word [cs:NextBlHOfs]	; ASM to NASM: add 'cs:'
 
         ; Loop while not at the end of the chain.
 
-                cmp     [si],0FFFFh
+                cmp     word [si],byte -1	; ASM optimizes 0FFFFh...
                 jnz     notlast
 
         ; Point back at beginning of last block header in chain.
 
-                sub     si,cs:word ptr NextBlHOfs
+                sub     si,word [cs:NextBlHOfs]	; ASM to NASM...
 
         ; Store for later use.
 
-                mov     cs:ChainEndOfs,si
-                mov     cs:ChainEndSeg,ds
+                mov     [cs:ChainEndOfs],si
+                mov     [cs:ChainEndSeg],ds
 
         ; DS:DvcSeg, ES:InvarSeg
 
         ; Point ES:BX to device after NUL device.
 
-                les     bx,es:[bx+22h]
+                les     bx,[es:bx+22h]
 
         ; Point DS:SI to new device (DvcSeg:0000).
 
-                mov     ds,cs:DvcSeg
+                mov     ds,[cs:DvcSeg]
                 xor     si,si
 
         ; DS:DvcSeg, ES:OldDvcSeg
@@ -545,23 +587,23 @@ anoth_dvc:      call    InstallDevice
                 push    cs
                 pop     ds
 
-                cmp     [LDrErrMsg],'0'
+                cmp     byte [LDrErrMsg],'0'
                 jz      noldrerr
-                mov     dx,offset LDrErrMsg
+                mov     dx,LDrErrMsg
                 mov     ah,9
                 int     21h
 
         ; Calculate size of driver to keep.
 
-noldrerr:       mov     ax,BlHEndOfs
+noldrerr:       mov     ax,[BlHEndOfs]
                 add     ax,0Fh
                 rcr     ax,1
                 mov     cl,3
                 shr     ax,cl
 
-                add     ax,EndSeg
+                add     ax,[EndSeg]
 
-                sub     ax,DvcSeg
+                sub     ax,[DvcSeg]
 
         ; Store size of driver to keep.
 
@@ -569,13 +611,13 @@ noldrerr:       mov     ax,BlHEndOfs
 
         ; Check whether anything installed, offer abortion if not.
 
-                mov     ax,word ptr BlocksDone
+                mov     ax,word [BlocksDone]
                 or      ax,ax
                 jnz     somedone
 
         ; Nothing installed - check whether Auto Mode.
 
-                test    byte ptr ModeFlag,AutoFlag	; *** byte ptr ***
+                test    byte [ModeFlag],AutoFlag	; *** byte ptr ***
                 jnz     somedone
 
         ; If it didn't want to stay anyway, don't ask.
@@ -591,14 +633,14 @@ noldrerr:       mov     ax,BlHEndOfs
 
         ; DS:TopCSeg, ES:0000
 
-                mov     si,offset IntVectors
+                mov     si,IntVectors
                 mov     cx,200h
                 rep     cmpsw
                 jnz     somedone
 
         ; Nothing installed, so give option of aborting.
 
-                mov     dx,offset AskEndMsg
+                mov     dx,AskEndMsg
                 mov     ah,9
                 int     21h
 
@@ -645,7 +687,7 @@ nokill:         mov     ah,02h
 
         ; Print CrLf afterwards.
 
-                mov     dx,offset CrLfMsg
+                mov     dx,CrLfMsg
                 mov     ah,9
                 int     21h
 
@@ -654,27 +696,29 @@ nokill:         mov     ah,02h
 somedone:       push    cs
                 pop     ds
 
-                test    byte ptr BlocksDone,0FFh	; *** byte ptr ***
+                test    byte [BlocksDone],0FFh	; *** byte ptr ***
                 jz      noprintldrmsg
 
-                test    byte ptr ModeFlag,VerboseFlag	; *** byte ptr ***
+                test    byte [ModeFlag],VerboseFlag	; *** byte ptr ***
                 jz      noprintldrmsg
 
-                mov     ax,word ptr LastDrUsed
+                mov     ax,word [LastDrUsed]
 
-                mov     LDMsgA, byte ptr 'A'-1	; explicit byte 3.16
-                mov     LDMsgB, byte ptr 'A'-1	; explicit byte 3.16
+                mov     byte [LDMsgA], byte 'A'-1	; explicit byte 3.16
+;		nop					; mimick ASM
+                mov     byte [LDMsgB], byte 'A'-1	; explicit byte 3.16
+;		nop					; mimick ASM
 
-                add     byte ptr LDMsgA,al
-                add     byte ptr LDMsgB,ah
+                add     byte [LDMsgA],al
+                add     byte [LDMsgB],ah
 
-                mov     dx,offset LastDrMsg
+                mov     dx,LastDrMsg
                 mov     ah,9
                 int     21h
 
         ; If not Quiet Mode, print number of devices installed.
 
-noprintldrmsg:  test    byte ptr ModeFlag,QuietFlag	; *** byte ptr ***
+noprintldrmsg:  test    byte [ModeFlag],QuietFlag	; *** byte ptr ***
                 jnz     noprintnuminst
 
         ; Get driver keep size into CX, don't print installed message if zero.
@@ -685,16 +729,16 @@ noprintldrmsg:  test    byte ptr ModeFlag,QuietFlag	; *** byte ptr ***
 
         ; Print number of blocks installed, if any.
 
-                mov     bl,BlocksDone
+                mov     bl,[BlocksDone]
                 or      bl,bl
                 jz      noblocks
 
-                add     NumBlInstMsg,bl
-                mov     dx,offset NumBlInstMsg
+                add     [NumBlInstMsg],bl
+                mov     dx,NumBlInstMsg
                 mov     ah,9
                 int     21h
 
-                mov     dx,offset NumInstMsgA
+                mov     dx,NumInstMsgA
                 cmp     bl,1
                 jnz     blnoplural
                 inc     dx
@@ -702,27 +746,27 @@ blnoplural:     int     21h
 
         ; Print number of character devices installed, if any.
 
-noblocks:       mov     bl,CharsDone
+noblocks:       mov     bl,[CharsDone]
                 or      bl,bl
                 jz      noprintnuminst
 
-                add     NumChInstMsg,bl
-                mov     dx,offset NumChInstMsg
+                add     [NumChInstMsg],bl
+                mov     dx,NumChInstMsg
                 mov     ah,9
                 int     21h
 
-                mov     dx,offset NumInstMsgA
+                mov     dx,NumInstMsgA
                 cmp     bl,1
                 jnz     chnoplural
                 inc     dx
 chnoplural:     int     21h
 
-        ; Insert new LastDrUsed into 'invar'.
+        ; Insert new LastDrUsed into 'invar'. (list of lists)
 
-noprintnuminst: les     bx,Invar
+noprintnuminst: les     bx,[Invar]
 
-                mov     al,LastDrUsed
-                mov     byte ptr es:[bx+20h],al
+                mov     al,[LastDrUsed]
+                mov     byte [es:bx+20h],al
 
         ; Restore driver size in paragraphs.
 
@@ -730,19 +774,19 @@ noprintnuminst: les     bx,Invar
 
         ; Test whether to print driver size.
 
-                test    byte ptr ModeFlag,VerboseFlag	; *** byte ptr ***
+                test    byte [ModeFlag],VerboseFlag	; *** byte ptr ***
                 jz      noprintsize
 
         ; Print 'Size of driver in paras:'.
 
-                mov     dx,offset SizeMsg
+                mov     dx,SizeMsg
                 mov     ah,9
                 int     21h
 
                 mov     ax,bx
                 call    PHWord
 
-                mov     dx,offset CrLfMsg
+                mov     dx,FullStopMsg	; 'h.',cr,lf
                 mov     ah,9
                 int     21h
 
@@ -755,37 +799,37 @@ noprintsize:    or      bx,bx
 
         ; Check whether it fits in the allocated block.
 
-lengthnotzero:  cmp     bx,BlockSize	; *** was cmp ax,... ***
+lengthnotzero:  cmp     bx,[BlockSize]	; *** was cmp ax,... ***
                 jna     drvrfits
-                mov     dx,offset TooBigMsg
+                mov     dx,TooBigMsg
                 mov     ah,9
                 int     21h
 
         ; Change memory allocation on lowest block in memory.
 
-drvrfits:       mov     es,DvcSeg
+drvrfits:       mov     es,[DvcSeg]
                 mov     ah,4Ah
                 int     21h
                 jnc     allocok
 
         ; Print 'allocation error'.
 
-                mov     dx,offset Reduce2ErrMsg
+                mov     dx,Reduce2ErrMsg
                 call    PrintError
                 mov     ah,9
                 int     21h
-                mov     dx,offset Reduce2ErrMsga
+                mov     dx,Reduce2ErrMsga
                 mov     ah,9
                 int     21h
 
         ; Check whether to print INT vectors changed.
 
-allocok:        test    byte ptr ModeFlag,VerboseFlag	; *** byte ptr ***
+allocok:        test    byte [ModeFlag],VerboseFlag	; *** byte ptr ***
                 jz      noprintints
 
         ; Print 'Interrupt vectors changed:'
 
-                mov     dx,offset IntChangeMsg
+                mov     dx,IntChangeMsg
                 mov     ah,9
                 int     21h
 
@@ -794,12 +838,12 @@ allocok:        test    byte ptr ModeFlag,VerboseFlag	; *** byte ptr ***
                 xor     bx,bx
                 mov     es,bx
                 mov     di,bx
-                mov     si,offset IntVectors
+                mov     si,IntVectors
                 mov     cx,200h
 
         ; Print no comma before the first INT number.
 
-                mov     dx,offset CommaMsg-1
+                mov     dx,CommaMsg-1
 
         ; Compare INT vectors with copy taken earlier.
 
@@ -827,8 +871,8 @@ loopints:       rep     cmpsw
 
         ; If was the offset, so don't bother checking the segment.
 
-                add     di,2
-                add     si,2
+                add     di,byte 2	; ASM to NASM: explicit byte
+                add     si,byte 2	; ASM to NASM: explicit byte
                 dec     cx
 
         ; Print interrupt number.
@@ -839,12 +883,12 @@ notofs:         shr     ax,1
 
         ; After the first one, print 'h, ' before the rest.
 
-                mov     dx,offset CommaMsg
+                mov     dx,CommaMsg
                 jmp     loopints
 
         ; Print either full stop or 'None.'
 
-lastdiff:       mov     dx,offset FullStopMsg
+lastdiff:       mov     dx,FullStopMsg
 
         ; Test flag to see whether any were changed.
 
@@ -853,7 +897,7 @@ lastdiff:       mov     dx,offset FullStopMsg
 
         ; None were changed, so print 'None.' instead of a full stop.
 
-                mov     dx,offset NoneMsg
+                mov     dx,NoneMsg
 
 notnochanges:   mov     ah,9
                 int     21h
@@ -862,12 +906,12 @@ notnochanges:   mov     ah,9
 
         ; Link from NUL device.
 
-noprintints:    les     bx,Invar
-                add     bx,0022h
-                mov     ax,NewDrvOfs
-                mov     es:[bx],ax
-                mov     ax,NewDrvSeg
-                mov     es:[bx+2],ax
+noprintints:    les     bx,[Invar]
+                add     bx,byte 0022h	; ASM to NASM: explicit byte
+                mov     ax,[NewDrvOfs]
+                mov     [es:bx],ax
+                mov     ax,[NewDrvSeg]
+                mov     [es:bx+2],ax
 
                 push    cs
                 pop     es
@@ -876,25 +920,25 @@ noprintints:    les     bx,Invar
 
         ; Find last backslash in filename.
 
-                mov     di,offset NameBuffer+80h
+                mov     di,NameBuffer+80h
                 mov     al,'\'
                 std
                 mov     cx,0080h
 
-                repnz   scasb
+                repnz   scasb	; NDISASM shows repnz as db 0xf2 here?
                 cld
-                add     di,2
+                add     di,byte 2	; ASM to NASM: explicit byte
 
         ; Point to arena header / MCB of driver segment.
 
-                mov     ax,DvcSeg
+                mov     ax,[DvcSeg]
                 dec     ax
                 mov     es,ax
 
         ; Set driver segment to self-ownership.
 
                 inc     ax
-                mov     word ptr es:[1],ax
+                mov     word [es:1],ax
 
         ; DS:TopCSeg, ES:DvcSeg-1
 
@@ -916,9 +960,9 @@ fill0s:         xor     al,al
                 rep     stosb
 
 stayexit:       
-                test    byte ptr ModeFlag,QuietFlag	; *** new 3.15
+                test    byte [ModeFlag],QuietFlag	; *** new 3.15
                 jnz     stay2exit			; new 3.15
-		mov     dx,offset StayingMsg
+		mov     dx,StayingMsg
                 jmp     prexit				; exit and show text
 stay2exit:	jmp	exit				; new 3.15
 
@@ -931,7 +975,7 @@ BreakHandler:   iret                    ; well, that didn't take long!
 ; ....................PHWord...........................
 
 ;       IN:     AX      word to be printed
-;       OUT:    nothing
+;       OUT:    nothing (print word as hex string)
 ;       LOST:   nothing
 
 
@@ -941,12 +985,12 @@ PHWord:         push    ax
                 mov     al,ah
                 call    PHByte
                 pop     ax
-                ret
+                retn
 
 ; ...............PHByte...........
 
 ;       IN      AL      byte to printed
-;       OUT:    nothing
+;       OUT:    nothing (print byte as hex string)
 ;       LOST:   nothing
 
 PHByte:         push    ax
@@ -959,12 +1003,12 @@ PHByte:         push    ax
                 mov     al,ah
                 call    PHNibble
                 pop     ax
-                ret
+                retn
 
 ; .............PHNibble................
 
 ;       IN:     AL      nibble to be printed
-;       OUT:    nothing
+;       OUT:    nothing (print hex digit via int 21 function 2)
 ;       LOST:   nothing
 
 PHNibble:       push    dx
@@ -979,7 +1023,7 @@ ph1:            mov     ah,02h
                 int     21h
                 pop     ax
                 pop     dx
-                ret
+                retn
 
 
 ; .......................PrintError..........................................
@@ -1010,11 +1054,11 @@ PrintError:     push    ax
 
         ; Look up offset of error message.
 
-notover9:       mov     bx,offset ErrTable
+notover9:       mov     bx,ErrTable
                 shl     ax,1
                 add     bx,ax
-                mov     dx,ds:[bx]	; 3.16: explicit segment
-                ret
+                mov     dx,[bx]	; 3.16: explicit segment
+                retn
 
 
 ; ............................InstallDevice..................................
@@ -1029,10 +1073,10 @@ notover9:       mov     bx,offset ErrTable
 
         ; Store device addresses.
 
-InstallDevice:  mov     cs:NewDrvOfs,si
-                mov     cs:NewDrvSeg,ds
-                mov     cs:OldDrvOfs,bx
-                mov     cs:OldDrvSeg,es
+InstallDevice:  mov     [cs:NewDrvOfs],si
+                mov     [cs:NewDrvSeg],ds
+                mov     [cs:OldDrvOfs],bx
+                mov     [cs:OldDrvSeg],es
 
                 push    cs
                 pop     ds
@@ -1049,12 +1093,14 @@ InstallDevice:  mov     cs:NewDrvOfs,si
 
         ; Insert next block device number.
 
-                mov     al,LastDrUsed
-                mov     byte ptr [RqHdr+16h],al
+                mov     al,[LastDrUsed]
+                mov     byte [RqHdr+16h],al
 
-        ; Insert command number zero - INIT.
+        ; Insert command number 0, INIT.
+	; Use subunit number 0, as DI1000DD block checks even for INIT
 
-                mov     byte ptr [RqHdr+2],0
+		xor	ax,ax
+                mov     word [RqHdr+2],ax	; command, subunit
 
         ; Insert default end of driver address = start of driver.
 	; *** changed to default to "available paras * 10h" for ***
@@ -1062,10 +1108,10 @@ InstallDevice:  mov     cs:NewDrvOfs,si
 	; (clipping the value to 64k for now, feels more compatible)
 	; (alternative would be to tell EndSeg:0 instead of DvcSeg:xxxx)
 
-                mov     ax,DvcSeg
-                mov     word ptr [RqHdr+10h],ax	; probably most compatible
-		mov	ax,EndSeg		; *** <new code> ***
-		sub	ax,DvcSeg		; find max number of paras
+                mov     ax,[DvcSeg]
+                mov     word [RqHdr+10h],ax	; probably most compatible
+		mov	ax,[EndSeg]		; *** <new code> ***
+		sub	ax,[DvcSeg]		; find max number of paras
 		cmp	ax,1000h		; more than 64kby?
 		jb	tellsmall
 		mov	ax,0fffh		; max reported value
@@ -1074,19 +1120,19 @@ tellsmall:	shl	ax,1			; convert paras to bytes
 		shl	ax,1
 		shl	ax,1
 		or	ax,0ch			; round up to 0xxxch
-                mov     word ptr [RqHdr+0Eh],ax	; *** </new code> ***
+                mov     word [RqHdr+0Eh],ax	; *** </new code> ***
 ; ***		mov     word ptr [RqHdr+0Eh],0	; *** old code ***
 
         ; Insert default no blocks (number of units: 0) in driver.
                 
-                mov     byte ptr [RqHdr+0Dh],0
+                mov     byte [RqHdr+0Dh],0
 
         ; Insert pointer to copy of command line.
 
-                mov     ax,PSPSeg
-                mov     word ptr [RqHdr+14h],ax
-                mov     ax,NamePtr
-                mov     word ptr [RqHdr+12h],ax
+                mov     ax,[PSPSeg]
+                mov     word [RqHdr+14h],ax
+                mov     ax,[NamePtr]
+                mov     word [RqHdr+12h],ax
 
                 push    cs
                 pop     es
@@ -1099,29 +1145,29 @@ tellsmall:	shl	ax,1			; convert paras to bytes
 
         ; Set ES:BX to point to RqHdr (for DvcStrat call.)
 
-                mov     bx,offset RqHdr
+                mov     bx,RqHdr
 
         ; Set up return addresses on stack.
 
-                mov     ds,cs:NewDrvSeg
+                mov     ds,[cs:NewDrvSeg]
 
         ; DS:NewDrvSeg, ES:TopCSeg
                 
         ; Push far address of DEVLOAD.
 
                 push    cs
-                mov     ax,offset after_int
+                mov     ax,after_int
                 push    ax
 
         ; Push far address of dvc_int.
 
                 push    ds
-                push    word ptr ds:[si+8]
+                push    word [si+8]
 
         ; Push far address of dvc_strat
 
                 push    ds
-                push    word ptr ds:[si+6]
+                push    word [si+6]
 
         ; Pass control to dvc_strat, which RETFs to dvc_int, which
         ; in turn RETFs to after_int.
@@ -1136,12 +1182,12 @@ after_int:      pop     si
 	; *** new 7/2005: copy number of units ("blocks") to device
 	; *** header if nonzero and block device. DOS kernel does
 	; *** the same, as not all devices set their own header...
-                test    byte ptr ds:[si+5],80h	; +4 is attr, 8000 is char
+                test    byte [si+5],80h	; +4 is attr, 8000 is char
 		jnz	ischardev
-                mov     al,byte ptr cs:[RqHdr+0Dh]	; number of units
+                mov     al,byte [cs:RqHdr+0Dh]	; number of units
 		or	al,al
 		jz	zerounits
-		mov	byte ptr ds:[si+0Ah],al
+		mov	byte [si+0Ah],al
 	; Device header is: far pointer to next device,
 	; word attributes, two near pointers to dvc_strat and dvc_int,
 	; then for block devices [byte number of units, 7 chars name]
@@ -1153,11 +1199,11 @@ ischardev:
 
         ; Increase count of character devices if it is one.
 
-                test    byte ptr ds:[si+5],80h
+                test    byte [si+5],80h
                 push    cs
                 pop     ds
                 jz      notchardev
-                inc     CharsDone	; even if init failed for THIS part?
+                inc     byte [CharsDone]	; even if init failed for THIS part?
 					; (device drivers can be multi-part)
 
 ; ***   ; Print CrLf after driver.
@@ -1169,7 +1215,7 @@ notchardev:
 
         ; Get offset of end of driver.
 
-                mov     ax,word ptr ds:[RqHdr+0Eh]
+                mov     ax,word [RqHdr+0Eh]
 
         ; Convert to paragraphs (rounded up.)
 
@@ -1180,36 +1226,36 @@ notchardev:
 
         ; Add segment of end of driver.
 
-                add     ax,word ptr ds:[RqHdr+10h]
+                add     ax,word [RqHdr+10h]
 
         ; Compare with previous value of EndSeg
 
-                cmp     ax,EndSeg
+                cmp     ax,[EndSeg]
                 jb      endset
 
         ; EndSeg has increased - this is only a problem if blocks are
         ; already installed.
 
-                test    byte ptr BlocksDone,0FFh	; *** byte ptr ***
+                test    byte [BlocksDone],0FFh	; *** byte ptr ***
                 jz      oktogrow
 
         ; Some block headers are already at EndSeg - can't change it now.
         
-                mov     dx,offset BadIncMsg
+                mov     dx,BadIncMsg
                 mov     ah,9
                 int     21h
                 jmp     short endset	; optimization 3.16
 
         ; No block headers done yet - change EndSeg.
                 
-oktogrow:       mov     EndSeg,ax
+oktogrow:       mov     [EndSeg],ax
 
         ; DS:TopCSeg
 
         ; Check number of units in driver. Skip if none.
 	; (CHAR devices are supposed to have left our 0 in this place)
 
-endset:         mov     ch,ds:[RqHdr+0Dh]	; explicit segment in 3.16
+endset:         mov     ch,[RqHdr+0Dh]	; explicit segment in 3.16
                 or      ch,ch
                 jnz     yesunits
 
@@ -1223,44 +1269,45 @@ yesunits:       xor     cl,cl
 
         ; Point ES:BP to new block header location.
 
-                les     bp,BlHEnd
+                les     bp,[BlHEnd]
 
         ; Point DS:BX to BPB pointer array from driver.
 
-                lds     bx,dword ptr [RqHdr+12h]
+                lds     bx,[RqHdr+12h]
 
         ; Point DS:SI to next BPB and increase pointer.
 
-nextblk:        mov     si,ds:[bx]	; explicit segment in 3.16
+nextblk:        mov     si,[bx]	; explicit segment in 3.16
                 inc     bx
                 inc     bx
 
         ; Check sector size.
 
-                mov     ax,ds:[si]	; explicit segment in 3.16
-                cmp     ax,cs:[SecSize]
+                mov     ax,[si]	; explicit segment in 3.16
+                cmp     ax,[cs:SecSize]
                 jna     secsizeok
                 jmp     secsizeerr
 
-secsizeok:      mov     al,cs:LastDrUsed
-                mov     cs:[BlHdrMsgA], byte ptr 'A'	; explicit byte 3.16
-                add     cs:[BlHdrMsgA],al
+secsizeok:      mov     al,[cs:LastDrUsed]
+                mov     byte [cs:BlHdrMsgA], byte 'A'	; explicit byte 3.16
+;		nop					; mimick ASM
+                add     [cs:BlHdrMsgA],al
         
         ; Check lastdrive.
 
-                cmp     al,cs:LastDrive
+                cmp     al,[cs:LastDrive]
                 jnz     ldrok
                 jmp     ldrerr
 
         ; Increase LastDrUsed.
 
-ldrok:          inc     cs:LastDrUsed
+ldrok:          inc     byte [cs:LastDrUsed]
 
         ; Store absolute block no. and block no. in device.
 
                 mov     ah,cl
                 inc     cl
-                mov     es:[bp],ax
+                mov     [es:bp],ax
 
         ; Store pointer to BPB ptr array.
 
@@ -1269,65 +1316,65 @@ ldrok:          inc     cs:LastDrUsed
 
         ; Point DS:BX to last block header in chain.
 
-                lds     bx,cs:ChainEnd
+                lds     bx,[cs:ChainEnd]
 
         ; Make it point to the new one.
 
-                add     bx,cs:word ptr NextBlHOfs
-                mov     ds:[bx],bp
-                mov     ds:[bx+2],es
-                sub     bx,cs:word ptr NextBlHOfs
+                add     bx,word [cs:NextBlHOfs]	; ASM to NASM: explicit cs:
+                mov     [bx],bp
+                mov     [bx+2],es
+                sub     bx,word [cs:NextBlHOfs]	; ASM to NASM: explicit cs:
 
                 push    cs
                 pop     ds
 
         ; Store new pointer to end of block header chain.
 
-                mov     ChainEndOfs,bp
-                mov     ChainEndSeg,es
+                mov     [ChainEndOfs],bp
+                mov     [ChainEndSeg],es
                 
         ; Print address of new block header if Verbose Mode.
 
-                test    byte ptr ModeFlag,VerboseFlag	; *** byte ptr ***
+                test    byte [ModeFlag],VerboseFlag	; *** byte ptr ***
                 jz      noprintblhmsg
 
-                mov     dx,offset BlHdrMsg
+                mov     dx,BlHdrMsg
                 mov     ah,9
                 int     21h
                 
                 mov     ax,es
                 call    PHWord
                 mov     ah,02h
-                mov     dl,3ah
+                mov     dl,3ah	; colon
                 int     21h
                 mov     ax,bp
                 call    PHWord
 
-                mov     dx,offset CrLfMsg
+                mov     dx,CrLfMsg
                 mov     ah,9
                 int     21h
 
         ; Get pointer to LASTDRIVE array.
 
-noprintblhmsg:  lds     bx,Invar
-                lds     bx,ds:[bx+16h]
+noprintblhmsg:  lds     bx,[Invar]
+                lds     bx,[bx+16h]
 
         ; Calculate offset in array of entry for this drive.
 
-                mov     al,cs:LastDrUsed
+                mov     al,[cs:LastDrUsed]
                 dec     al
-                mov     ah,cs:LDrSize
+                mov     ah,[cs:LDrSize]
                 mul     ah
                 add     bx,ax
 
         ; Insert 'valid' flag.
 
-                mov     byte ptr [bx+44h],40h
+                mov     byte [bx+44h],40h
 
         ; Insert pointer to block header for this drive.
 
-                mov     word ptr [bx+45h],bp
-                mov     word ptr [bx+47h],es
+                mov     word [bx+45h],bp
+                mov     word [bx+47h],es
 
         ; Restore pointer to BPB pointer array.
 
@@ -1336,20 +1383,20 @@ noprintblhmsg:  lds     bx,Invar
 
         ; Insert pointer to device into block header.
 
-                mov     ax,cs:NewDrvOfs
-                add     bp,cs:word ptr NextBlHOfs
-                mov     es:[bp-6],ax
-                mov     ax,cs:NewDrvSeg
-                mov     es:[bp-4],ax
+                mov     ax,[cs:NewDrvOfs]
+                add     bp,word [cs:NextBlHOfs]	; ASM to NASM: explicit cs:
+                mov     [es:bp-6],ax
+                mov     ax,[cs:NewDrvSeg]
+                mov     [es:bp-4],ax
 
         ; Insert 'BPB needs rebuilding' flag into block header.
 
-                mov     byte ptr es:[bp-1],0FFh
+                mov     byte [es:bp-1],0FFh
                 
         ; Insert 'End of chain' into block header.
 
-                mov     es:[bp],0FFFFh
-                sub     bp,cs:word ptr NextBlHOfs
+                mov     word [es:bp],0FFFFh
+                sub     bp,word [cs:NextBlHOfs]	; ASM to NASM: explicit cs:
 
         ; Expand BPB into block header
         ; *** Extended in DEVLOAD 3.18: use magic CX/DX ***
@@ -1364,15 +1411,15 @@ noprintblhmsg:  lds     bx,Invar
 
         ; Point ES:BP to location of next block header.
 
-                add     bp,cs:BlHSize
+                add     bp,[cs:BlHSize]
 
         ; Store location of next block header.
 
-                mov     cs:BlHEndOfs,bp
+                mov     [cs:BlHEndOfs],bp
 
         ; Increase count of blocks installed.
 
-                inc     cs:BlocksDone
+                inc     byte [cs:BlocksDone]
 
         ; Loop if more blocks in this device to install.
 
@@ -1384,7 +1431,7 @@ nxtblkchk:      cmp     cl,ch
 
 secsizeerr:     push    cs
                 pop     ds
-                mov     dx,offset SSizeErrMsg
+                mov     dx,SSizeErrMsg
                 mov     ah,9
                 int     21h
                 inc     cl
@@ -1395,7 +1442,7 @@ secsizeerr:     push    cs
 ldrerr:         push    cs
                 pop     ds
                 sub     ch,cl
-                add     ds:[LDrErrMsg],ch
+                add     [LDrErrMsg],ch
 
         ; Finished installing units, or was none to install.
 
@@ -1404,16 +1451,16 @@ nounits:        push    cs
 
         ; Print init return status IF Verbose Mode.
 
-                test    byte ptr ModeFlag,VerboseFlag	; *** byte ptr ***
+                test    byte [ModeFlag],VerboseFlag	; *** byte ptr ***
                 jz      noprintinitret
 
-                mov     dx,offset InitRetMsg
+                mov     dx,InitRetMsg
                 mov     ah,9
                 int     21h
-                mov     ax,word ptr ds:[RqHdr+3]	; explicit segment in 3.16
+                mov     ax,word [RqHdr+3]	; explicit segment in 3.16
                 call    PHWord
 
-                mov     dx,offset CrLfMsg
+                mov     dx,FullStopMsg	; 'h.',cr,lf
                 mov     ah,9
                 int     21h
 
@@ -1421,23 +1468,23 @@ nounits:        push    cs
 
         ; Set up pointers.
 
-noprintinitret: les     bx,OldDrv
-                lds     si,NewDrv
+noprintinitret: les     bx,[OldDrv]
+                lds     si,[NewDrv]
 
         ; DS:NewDvcSeg, ES:OldDvcSeg
 
         ; Find location of next driver in file.
 
-                mov     ax,ds:[si+2]
+                mov     ax,[si+2]
                 push    ax
 
-                mov     ax,ds:[si]
+                mov     ax,[si]
                 push    ax
 
         ; Link NewDrv to OldDrv.
 
-                mov     ds:[si],bx
-                mov     ds:[si+2],es
+                mov     [si],bx
+                mov     [si+2],es
 
         ; Restore next driver in file address to AX:SI
 
@@ -1446,7 +1493,7 @@ noprintinitret: les     bx,OldDrv
 
         ; Point ES:BX to just installed driver.
 
-                les     bx,cs:NewDrv
+                les     bx,[cs:NewDrv]
 
         ; Check whether to change segment or use same seg for next driver.
 
@@ -1461,16 +1508,18 @@ noprintinitret: les     bx,OldDrv
 
         ; Set zero flag on whether this is the last driver in the file.
 
-nosegchange:    cmp     si,0FFFFh
-                ret
+nosegchange:    cmp     si,byte -1	; ASM to NASM: 0FFFFh to byte -1
+                retn
 
 ; .............................TEXT MESSAGES.................................
 
-StayingMsg      db 'Driver staying resident.',13,10,24h
-FNameMsg        db 'Filename: $'
+StayingMsg	db 'Driver loaded.',13,10,24h
+		; db 'Driver staying resident.',13,10,24h
+FNameMsg        db 'Loading: $'		; db 'Filename: $'
 LoadAddrMsg     db 'Loaded at: $'
 InitRetMsg      db 'Init status: $'
 SizeMsg         db 'Driver size in paras: $'
+WantedParasMsg	db 'Init driver size in paras: $'
 IntChangeMsg    db 'Int vectors changed: $'
 NoneMsg         db 'None.',13,10,24h
 CommaMsg        db 'h, $'
@@ -1486,24 +1535,25 @@ BlHdrMsgA       db 'A: at $'
 NumBlInstMsg    db '0 drives$'
 NumChInstMsg    db '0 char device$'
 NumInstMsgA     db 's installed.',13,10,24h
-LDrErrMsg       db '0 drives skipped - LASTDRIVE too small.',13,10,24h
+LDrErrMsg       db '0 drives skipped - LASTDRIVE overflow.',13,10,24h
 AskEndMsg       db 13,10,'No drives or Ints - unload (Y/N) ? $'
-SSizeErrMsg     db 'Sector size too large, drives skipped.',13,10,24h
+SSizeErrMsg     db 'Sector size too large.',13,10,24h
 
         ; Error messages.
 
 ReduceErrMsg    db "Error: Can't reduce memory allocation ($"
-RelEnvErrMsg    db "Error: Can't release environment ($"
-RelPSPErrMsg    db "Error: Can't release original segment ($"
+RelEnvErrMsg    db "Error: Can't release ENV ($"
+RelPSPErrMsg    db "Error: Can't release PSP ($"
 GrabHiErrMsg    db "Error: Can't grab memory to relocate ($"
 GrabLoErrMsg    db "Error: Can't grab memory to load driver ($"
-Reduce2ErrMsg   db 13,10,"Error: Can't change final memory allocation ($"
-Reduce2ErrMsga  db " Have installed driver; continuing anyway.",13,10
-                db " Rebooting your system is recommended.",13,10,10,24h
-BadIncMsg       db 'Error: Driver grew after block header(s) installed.',13,10
-                db 'Expect troubles.',13,10,24h
-NotLoadMsg      db 13,10,'Error: EXEC failed ($'
-TooBigMsg       db 13,10,'Error: Driver wants too much memory.',13,10,24h
+Reduce2ErrMsg   db "Error: Can't resize memory allocation ($"
+		; 'Driver grew after block header setup.'
+BadIncMsg       db "Error: Block driver overflowed memory allocation.",13,10
+		; error message continues with Reduce2ErrMsga
+Reduce2ErrMsga  db "Better reboot now.",13,10,24h
+NotLoadMsg      db 13,10,"Error: EXEC failed ($"
+TooBigMsg       db "Error: Driver overflowed memory allocation."
+		db 13,10,24h
 
         ; Error cause messages.
 
@@ -1513,6 +1563,7 @@ Err5            db 'h - Access denied)',13,10,24h
 Err7            db 'h - MCB bad)',13,10,24h ; MCB destroyed, Arena header bad
 Err8            db 'h - Out of memory)',13,10,24h
 Err9            db 'h - MCB not found)',13,10,24h
+ErrBadFile	db 'h - File read error)',13,10,24h
 ; ***           db ' PLEASE INFORM THE AUTHOR!',13,10,24h
 ; ErrB            db 'h - Format invalid)',13,10,24h
 		; FreeDOS only returns error 0b, DE_INVLDFMT, if you
@@ -1523,7 +1574,7 @@ BadSwitchMsg2   db ')',13,10,24h
 
 
 ErrTable        dw      ErrUnknown	; no error
-                dw      ErrUnknown	; function nr. bad / unsupported
+                dw      ErrBadFile	; function nr. bad / unsupported
                 dw      Err2		; file not found
                 dw      Err3		; path / dir not found
                 dw      ErrUnknown	; <-- too many files open
@@ -1544,52 +1595,54 @@ NextBlHOfs      db      19h,0	; offset in parameter block of ptr to next one.
 BlocksDone      db      00	; no. of blocks installed.
 CharsDone       db      00	; no. of character devices installed.
 
-DvcSeg          dw      ?	; parameter block for EXEC function.
+DvcSeg          dw	0	; ? parameter block for EXEC function.
                 dw      0000	; i.e. segment, relocation factor.
 
 ModeFlag        db      00	; command line switch flags
 
-BlHEnd          label   dword
+BlHEnd:
 BlHEndOfs       dw      0000
-EndSeg          dw      ?	; segment, end of required memory.
+EndSeg          dw	0	; ? segment, end of required memory.
 
-PSPSeg          dw      ?
+PSPSeg          dw	0	; ?
 
 PathPtr         dd      0
 EmptyPath	dw	0
 
-NameBuffer      db      80h dup(?)
+NameBuffer      times	80h	db	0	; resb      80h
                   
-LastDrUsed      db      ?
-LastDrive       db      ?
+LastDrUsed      db	0	; resb	1
+LastDrive       db	0	; resb	1
 
-OldAllocStrat   dw      ?	; DOS allocation strategy
-BlockSize       dw      ?
+OldAllocStrat   dw	0	; resw	1	; DOS allocation strategy
+BlockSize       dw	0	; resw	1
+WantedParas	dw	0	; minimum paragraphs or RAM to load driver
 
-NamePtr         dw      ?	; pointer to start of name.
-NameLen         dw      ?
+NamePtr         dw	0	; resw	1	; pointer to start of name.
+NameLen         dw	0	; resw	1
 
-Invar           label   dword
-InvarOfs        dw      ?
-InvarSeg        dw      ?
+Invar:		; list of lists - see int 21 function 52
+InvarOfs        dw	0	; resw	1
+InvarSeg        dw	0	; resw	1
 
-ChainEnd        label   dword
-ChainEndOfs     dw      ?	; last device parameter block in chain.
-ChainEndSeg     dw      ?
+ChainEnd:
+ChainEndOfs     dw	0	; ? last device parameter block in chain.
+ChainEndSeg     dw	0	; resw	1
 
-SecSize         dw      ?
+SecSize         dw	0	; resw	1
 
-NewDrv          label   dword
-NewDrvOfs       dw      ?	; storage for InstallDevice routine.
-NewDrvSeg       dw      ?
+NewDrv:
+NewDrvOfs       dw	0	; ? storage for InstallDevice routine.
+NewDrvSeg       dw	0	; resw	1
 
-OldDrv          label   dword
-OldDrvOfs       dw      ?
-OldDrvSeg       dw      ?
+OldDrv:
+OldDrvOfs       dw	0	; resw	1
+OldDrvSeg       dw	0	; resw	1
 
-RqHdr           db      20h dup (?)
+RqHdr           times	20h	db 0	; resb      20h
 
-IntVectors      dw      200h dup (?)	; storage for interrupt vectors,
+FileBuffer	equ	IntVectors+300h	; 100h bytes overlap (20h used now)
+IntVectors      times	200h	dw 0	; ? storage for interrupt vectors,
                         		; for checking whether they've changed.
 
         ; Marker to signal last byte that needs relocation.
@@ -1598,31 +1651,40 @@ LASTBYTE        equ     $
 
 ; ................DATA WHICH ISN'T NEEDED AFTER RELOCATION...................
 
-SignOnMsg       db 'DEVLOAD v3.20 (C) 1992-1996 David Woodhouse '
-                db ' <Dave@imladris.demon.co.uk>',13,10
-		db ' Patches for v3.12-3.20 by Eric Auer 2004-2007'
-		db ' <Eric*coli.uni-sb.de>',13,10
+SignOnMsg	db 'DEVLOAD v3.21 - load DOS device drivers '
+		db '- license' ; db '- free -'
+		db ' GNU General Public License 2',13,10
+		db '(c) 1992-2008 David Woodhouse dwmw2@infradead.org '
+		db 'Eric Auer eric@coli.uni-sb.de',13,10
+		db 13,10,24h
+%if 0
+		db 'DEVLOAD v3.21 (C) 1992-1996 David Woodhouse '
+                db ' <dwmw2@infradead.org>',13,10
+		db 'Eric Auer 2004-2008'
+		db ' <eric*coli.uni-sb.de> License: GNU GPLv2',13,10
                 db ' Loads device drivers.',13,10
 ; kind of obvious...:	db ' Needs DOS 3 or newer.'
 		db 13,10,24h
+%endif
 
-HelpMsg1        db 'Usage:    DEVLOAD [switches] filename [params]',13,10
+HelpMsg1	db 'Usage:    DEVLOAD [switches] filename [params]',13,10
                 db 'Emulates: DEVICE=filename [params] in CONFIG.SYS',13,10
-                db 10,'Switches:',13,10
+                db 13,10,'Switches:',13,10
                 db '      /? - display this help message.',13,10
                 db '      /H - try to load driver to UMB.',13,10
                 db '      /Q - quiet mode.',13,10
                 db '      /V - verbose mode.',13,10
-                db '      /A - auto-mode (force to stay loaded).',13,10
+                db '      /A - auto-mode (see docs).',13,10
 		db 13,10
+		db 'DEVLOAD is free software. It comes with NO waranty.',13,10
                 db 'Debug hints: self-reloc @ $'
 HelpMsg2        db ', driver exec @ $'
 
-umbmsg		db 'Using UMB-first allocation.',13,10,'$'
-noumbmsg	db 'No UMB support: DOS 5 or newer needed.',13,10,'$'
+umbmsg		db 'Trying to use UMB.',13,10,'$'
+noumbmsg	db 'No UMB: DOS 5 or newer needed.',13,10,'$'
 
 BadSwitchMsg    db 'Error: Bad switch ($'
-NoFileMsg       db 'Error: No filename given. Read DEVLOAD /? help.',13,10,'$'
+; NoFileMsg	db 'DEVLOAD /? shows help.',13,10,'$'
 FileNoExistMsg  db "Error: Can't open file ($"
 BadVerMsg       db 'Error: DOS 3 or newer needed.',13,10,'$'
 
@@ -1642,7 +1704,7 @@ Main:           push    cs
 
                 mov     ah,62h
                 int     21h
-                mov     cs:PSPSeg,bx
+                mov     [cs:PSPSeg],bx
 
 ; ***   ; Print sign on message. <-- moved further below
 
@@ -1660,7 +1722,7 @@ Main:           push    cs
 
         ; Version before 3.0, so print error and exit.
 
-badver:		mov     dx,offset BadVerMsg
+badver:		mov     dx,BadVerMsg
 		jmp     prexit
 
         ; Version 3.x, so change variables to correct values.
@@ -1703,9 +1765,9 @@ ver3:		; DR DOS up to 7.00 "are DOS 3.31" but pre-DR-6.0 fail:
 ; 58h bytes each, 51h for DOS 3.x ... DOS Block headers are the DPB
 ; (drive parameter block) items, 20h bytes in DOS 3.x, 21h in 4.0-6.0
 ; FAT32 DPB start like FAT1x ones, but are 1ch bytes longer ... (3.17)
-realver3:	mov     LDrSize,51h
-		mov     byte ptr BlHSize,20h 
-		mov     NextBlHOfs,18h
+realver3:	mov     byte [LDrSize],51h
+		mov     byte [BlHSize],20h 
+		mov     byte [NextBlHOfs],18h
 		jmp	short classicver
 
 okver:		; Check FAT32 compatibility: VER >= 7.01
@@ -1734,33 +1796,26 @@ okver:		; Check FAT32 compatibility: VER >= 7.01
 		cmp	ax, 00006h ; EDR-DOS always returns ver 6.00
 		jne	stdFAT32   ; after calling function int 21.3000
 		mov	ch, 41h    ; Increase DPB size for EDR-DOS (added in 3.20)
-stdFAT32:	mov	byte ptr BlHSize, ch ; Set FAT32 DPB size (3Dh or 41h)
+stdFAT32:	mov	byte [BlHSize], ch ; Set FAT32 DPB size (3Dh or 41h)
 
 classicver:
         ; Check command line.
 
-                mov     ds,PSPSeg
+                mov     ds,[PSPSeg]
                 xor     bh,bh
-                mov     bl,byte ptr ds:[80h]
+                mov     bl,byte [80h]
                 or      bx,bx
                 jnz     cmdlineexists
 
         ; No parameters given - print error and exit.
 
 nofilename:
-       ; Print sign on message before leaving
-                mov     dx,offset SignOnMsg
-                mov     ah,9
-                int     21h
-
-                mov     dx,offset NoFileMsg
-                push    cs
-                pop     ds
-                jmp     prexit
+		jmp	help
+		; before 3.21: print SignOnMsg prexit with NoFileMsg
 
         ; Command line exists - convert to all upper case.
 
-cmdlineexists:  mov     si,0081h
+cmdlineexists:  mov     si,81h
                 mov     cx,bx
 toupperloop:    lodsb
                 cmp     al,'a'
@@ -1768,7 +1823,7 @@ toupperloop:    lodsb
                 cmp     al,'z'
                 ja      notlower
                 xor     al,20h
-                mov     ds:[si-1],al
+                mov     [si-1],al
 notlower:       loop    toupperloop
 
         ; Check whether filename present.
@@ -1806,7 +1861,7 @@ getloop1:       lodsb
 
         ; Check whether first char on command line is a switch.
 
-                cmp     ds:[si],dl
+                cmp     [si],dl
                 jz      isswitch
                 jmp     noswitch
 
@@ -1832,12 +1887,12 @@ unknownswitch:  push    ax
                 pop     ds
 
        ; Print sign on message before error message
-                mov     dx,offset SignOnMsg
+                mov     dx,SignOnMsg
                 mov     ah,9
                 int     21h
 
 
-                mov     dx,offset BadSwitchMsg
+                mov     dx,BadSwitchMsg
                 mov     ah,9
                 int     21h
 
@@ -1847,7 +1902,7 @@ unknownswitch:  push    ax
                 mov     dl,dh
                 int     21h
 
-                mov     dx,offset BadSwitchMsg2
+                mov     dx,BadSwitchMsg2
                 jmp     prexit
 
         ; Print help message.
@@ -1856,39 +1911,39 @@ help:           push    cs
                 pop     ds
 
        ; Print sign on message before showing the help screen
-                mov     dx,offset SignOnMsg
+                mov     dx,SignOnMsg
                 mov     ah,9
                 int     21h
 
 
-                mov     dx,offset HelpMsg1
+                mov     dx,HelpMsg1
                 mov     ah,9
                 int     21h
-                mov     ax,offset BREAKPOINT1
+                mov     ax,BREAKPOINT1
                 call    PHWord
-                mov     dx,offset HelpMsg2
+                mov     dx,HelpMsg2
                 mov     ah,9
                 int     21h
-                mov     ax,offset BREAKPOINT2
+                mov     ax,BREAKPOINT2
                 call    PHWord
-                mov     dx,offset CrLfMsg
+                mov     dx,CrLfMsg
                 jmp     prexit
 
         ; Set verbose mode flag.
 
-verbose:        or      cs:ModeFlag,VerboseFlag
-                and     cs:ModeFlag,not QuietFlag
+verbose:        or      byte [cs:ModeFlag],VerboseFlag
+                and     byte [cs:ModeFlag],~ QuietFlag
                 jmp     short switchloop	; optimization 3.16
 
         ; Set automatic mode flag.
 
-auto:           or      cs:ModeFlag,AutoFlag
+auto:           or      byte [cs:ModeFlag],AutoFlag
                 jmp     short switchloop	; optimization 3.16
 
         ; Set quiet mode flag.
 
-quiet:          or      cs:ModeFlag,QuietFlag
-                and     cs:ModeFlag,not VerboseFlag
+quiet:          or      byte [cs:ModeFlag],QuietFlag
+                and     byte [cs:ModeFlag],~ VerboseFlag
 		jmp	short switchloop	; optimization 3.16
 
         ; Set load into UMB (devicehigh) mode flag.
@@ -1899,16 +1954,18 @@ umb:            push	bx		; *** added DOS version check ***
 		push	dx
 		mov	ax,3000h	; get DOS version AL.AH (.BH.BL.CX)
 		int	21h
-		mov	dx,offset noumbmsg
+		mov	dx,noumbmsg
 		cmp	al,5		; at least version 5 ? (3.15 tested AH, bug)
 		jb	umbskip		; else no UMBs avail
-		mov	dx,offset umbmsg
-		or      cs:ModeFlag,UMBFlag
+		xor	dx,dx
+		or      byte [cs:ModeFlag],UMBFlag
 umbskip:	push	ds
 		mov	bx,cs
 		mov	ds,bx
-                test    byte ptr ModeFlag,QuietFlag	; *** new 3.15
+                test    byte [ModeFlag],QuietFlag	; *** new 3.15
 		jnz	umbquiet			; new 3.15
+		or	dx,dx
+		jz	umbquiet
 		mov	ah,9		; show message at ds:dx
 		int	21h
 umbquiet:						; new 3.15
@@ -1979,22 +2036,27 @@ nobacksl:       cmp     al,' '
 outloop2:
 
        ; *** Print sign on message now, AFTER parsing command line ***
-                test    byte ptr ModeFlag,QuietFlag	; ***
+                test    byte [ModeFlag],QuietFlag	; ***
                 jnz     noprintsignon
 		push ax
 		push dx
-                mov     dx,offset SignOnMsg	; (DS -> CS already)
+                mov     dx,SignOnMsg	; (DS -> CS already)
                 mov     ah,9
                 int     21h
-		pop dx
+                test    byte [ModeFlag],UMBFlag		; *** new 3.15
+		jz	noumbflag			; new 3.15
+		mov	dx,umbmsg
+		mov	ah,9
+		int	21h
+noumbflag:	pop dx
 		pop ax
 noprintsignon:
 
-                mov     es:NamePtr,bp
+                mov     [es:NamePtr],bp
                 dec     si
                 mov     cx,si
                 sub     si,bp
-                mov     es:NameLen,si
+                mov     [es:NameLen],si
 
         ; Restore pointer to start of pathname.
 
@@ -2008,13 +2070,13 @@ noprintsignon:
         ; Set PathPtr to point to zero - simulate no PATHs left.
 
 ; ???                mov     word ptr es:PathPtr,offset DvcSeg+2
-                mov     word ptr es:PathPtr,offset EmptyPath	; 8/2007
-                mov     word ptr es:PathPtr+2,cs
+                mov     word [es:PathPtr],EmptyPath	; 8/2007
+                mov     word [es:PathPtr+2],cs
 
         ; Start with default directory.
 
 notpathname:    sub     cx,si
-                mov     di,offset NameBuffer
+                mov     di,NameBuffer
 
         ; Use default directory or one specified first time, not PATH.
 
@@ -2026,14 +2088,14 @@ notpathname:    sub     cx,si
 
         ; Check whether we've already got a pointer to PATH.
 
-allpathloop:    lds     si,PathPtr
+allpathloop:    lds     si,[PathPtr]
                 or      si,si
                 jnz     pathfound
 
         ; Not yet, so find PATH segment.
 
-                mov     ds,cs:PSPSeg
-                mov     bx,word ptr ds:[002Ch]
+                mov     ds,[cs:PSPSeg]
+                mov     bx,word [002Ch]
 
         ; Check whether it exists.
 
@@ -2044,13 +2106,13 @@ allpathloop:    lds     si,PathPtr
 
 filenoexist:    push    cs
                 pop     ds
-                mov     dx,offset FileNoExistMsg
+                mov     dx,FileNoExistMsg
                 jmp     fileerr
 
         ; Store PATH segment in local pointer.
 
 envsegexists:   mov     ds,bx
-                mov     word ptr cs:PathPtr+2,bx
+                mov     word [cs:PathPtr+2],bx
 
         ; Scan environment for 'PATH='
                                      
@@ -2101,7 +2163,7 @@ pathfoundloop:  lodsb
 
         ; Forget file error message - we'll try again.
 
-                add     sp,2
+                add     sp,byte 2	; ASM to NASM: explicit byte
 
         ; Store start of this PATH item + 1.
 
@@ -2117,13 +2179,13 @@ pathloop1:      lodsb
 
         ; Store start of next PATH item.
 
-endpath:        mov     word ptr cs:PathPtr,si
+endpath:        mov     word [cs:PathPtr],si
 
         ; If last one, point back at the terminating NULL.
 
                 or      al,al
                 jnz     ismorepaths
-                dec     word ptr cs:PathPtr
+                dec     word [cs:PathPtr]
 
         ; Calculate length of this PATH item.
 
@@ -2134,7 +2196,7 @@ ismorepaths:    mov     cx,si
 
         ; Copy PATH item to NameBuffer.
 
-                mov     di,offset NameBuffer
+                mov     di,NameBuffer
                 rep     movsb
 
         ; Add backslash if necessary.
@@ -2142,17 +2204,17 @@ ismorepaths:    mov     cx,si
                 push    cs
                 pop     ds
 
-                cmp     byte ptr ds:[di-1],'\'
+                cmp     byte [di-1],'\'
                 jz      alreadybacksl
                 mov     al,'\'
                 stosb
 
         ; Copy filename after PATH item.
 
-alreadybacksl:  mov     si,NamePtr
-                mov     cx,NameLen
+alreadybacksl:  mov     si,[NamePtr]
+                mov     cx,[NameLen]
 
-                mov     ds,PSPSeg
+                mov     ds,[PSPSeg]
 
 entrypoint:     rep     movsb
 
@@ -2166,7 +2228,7 @@ entrypoint:     rep     movsb
                 push    cs
                 pop     ds
 
-                mov     dx,offset NameBuffer
+                mov     dx,NameBuffer
                 mov     ax,4300h
                 int     21h
                 jnc     foundfilename
@@ -2182,9 +2244,75 @@ foundfilename:  test    cl,10h
                 mov     ax,2
                 jmp     allpathloop
 
+	; set error code to our own file read error one
+
+filereaderror:
+		mov	ax,1		; self-defined error code
+		jmp	allpathloop
+
+	; check file header to know how much RAM the driver wants
+
+okfilename:	mov	ax,3d00h	; open file ds:dx for read
+		int	21h
+		jc	filereaderror
+		mov	bx,ax		; handle
+		mov	ax,3f00h	; read file
+		mov	cx,1ch		; just the header
+		mov	dx,FileBuffer	; abuse as file buffer
+		int	21h
+		jc	filereaderror
+		cmp	ax,1ch
+		jb	filereaderror
+		cmp	word [FileBuffer],'MZ'
+		jz	exesize		; (if not EXE-SYS: plain-SYS)
+		mov	ax,4202h	; seek to end, handle BX
+		xor	cx,cx
+		xor	dx,dx
+		int	21h
+		jc	filereaderror
+		; file size is now in DX:AX
+		push	ax
+		mov	ax,3e00h	; close file, handle BX
+		int	21h		; no error handling :-p
+		pop	ax
+		jmp	convertsize
+
+exesize:	mov	ax,3e00h	; close file, handle BX
+		int	21h
+		mov	ax,[FileBuffer+4] ; pages, rounded up (+2: fraction)
+		xor	dx,dx
+		mov	bx,512		; page size
+		mul	bx
+		mov	bx,[FileBuffer+10] ; min extra paras (+12: max extra)
+		mov	cl,4
+		shl	bx,cl
+		add	ax,bx
+		adc	dx,byte 0	; size is now in DX:AX
+
+convertsize:	add	ax,byte 15
+		adc	dx,byte 0
+		and	dx,15		; use size modulo 1 MB, as 21.4b
+		mov	bx,16		; convert to paras
+		div	bx
+		mov	[WantedParas],ax
+
+	; show information about file size / header, if verbose:
+
+		test    byte [ModeFlag],VerboseFlag	; *** byte ptr ***
+                jz      noprintwp
+                mov     dx,WantedParasMsg	; 'Minimum RAM'
+                mov     ah,9
+                int     21h
+                mov     ax,[WantedParas]	; Min paras to load driver
+                call    PHWord
+		mov	dx,FullStopMsg		; 'h',cr,lf
+		mov	ah,9
+		int	21h
+noprintwp:
+
         ; File exists - expand filename using function 60h.
 
-okfilename:     mov     si,offset NameBuffer
+		mov     si,NameBuffer
                 mov     di,si
                 mov     ah,60h
                 int     21h
@@ -2193,25 +2321,25 @@ okfilename:     mov     si,offset NameBuffer
 
                 mov     ax,5800h
                 int     21h
-                mov     OldAllocStrat,ax
+                mov     [OldAllocStrat],ax
 
         ; Reduce main allocation.
 
         ; DS:CSeg, ES:CSeg
 
-                mov     bx,offset LASTBYTE+10Fh	; resident part and PSP
-                add     bx,offset STACKLEN	; stack
+                mov     bx,LASTBYTE+10Fh	; resident part and PSP
+                add     bx,STACKLEN	; stack
                 mov     cl,4
                 shr     bx,cl
                 mov     cx,bx
-                mov     es,PSPSeg
+                mov     es,[PSPSeg]
                 mov     ah,4ah
                 int     21h
                 jnc     reduceok
 
         ; Failed to reduce memory allocation, so print error and exit.
 
-                mov     dx,offset ReduceErrMsg
+                mov     dx,ReduceErrMsg
                 jmp     allocerr
 
         ; Set allocation strategy to highest fit.
@@ -2233,7 +2361,7 @@ reduceok:       mov     ax,5801h
         ; DS:CSeg, ES:TopPSPSeg
 
                 mov     ax,5801h
-                mov     bx,OldAllocStrat
+                mov     bx,[OldAllocStrat]
                 int     21h
 
         ; Check whether grabbed memory OK.
@@ -2243,27 +2371,27 @@ reduceok:       mov     ax,5801h
 
         ; Failed to grab memory, so print error and exit.
 
-                mov     dx,offset GrabHiErrMsg
+                mov     dx,GrabHiErrMsg
                 jmp     allocerr
 
         ; Make new PSP at top of memory.
 
         ; DS:CSeg, ES:TopPSPSeg
 
-nograbhierr:    mov     ds,PSPSeg
-                mov     si,word ptr ds:[2]	; explicit segment in 3.16 (avoid TASM problem)
+nograbhierr:    mov     ds,[PSPSeg]
+                mov     si,word [2]	; explicit segment in 3.16 (avoid TASM problem)
                 mov     dx,es
                 mov     ah,55h
                 int     21h
 
         ; Fix parent PSP record in new PSP.
 
-                mov     ax,ds:[16h]
-                mov     es:[16h],ax
+                mov     ax,[16h]
+                mov     [es:16h],ax
 
         ; Move program to top of memory.
 
-                mov     cx,offset LASTBYTE+80h+0Fh
+                mov     cx,LASTBYTE+80h+0Fh
                 and     cx,0FFF0h
                 shr     cx,1
                 mov     di,80h	; *** why is that 80h? command line? ***
@@ -2278,7 +2406,7 @@ nograbhierr:    mov     ds,PSPSeg
                 mov     ax,es	; target segment
                 dec     ax
                 mov     ds,ax	; mcb for target segment
-                mov     word ptr ds:[1],es
+                mov     word [1],es
 
                 push    cs
                 pop     ds
@@ -2291,7 +2419,7 @@ nograbhierr:    mov     ds,PSPSeg
 
         ; Calculate location of stack at top of memory.
 
-                mov     bx,offset LASTBYTE+10Fh	; resident part + PSP
+                mov     bx,LASTBYTE+10Fh	; resident part + PSP
                 mov     cl,4
                 shr     bx,cl
                 mov     ax,es
@@ -2315,7 +2443,7 @@ nograbhierr:    mov     ds,PSPSeg
 ;               add     ax,10h	; *** not for .com version! ***
                 mov     ds,ax
                 push    ax
-                mov     ax,offset relocated
+                mov     ax,relocated
                 push    ax
 		sti		; *** added ***
 BREAKPOINT1:    ; ret far	; *** Arrowsoft ASM screws up retf / ret far
@@ -2324,7 +2452,6 @@ BREAKPOINT1:    ; ret far	; *** Arrowsoft ASM screws up retf / ret far
 
 
 
-CSeg            ends
 
 ; *** removing stack segment to create a .com version ***
 ; SSeg    segment stack   para    'STACK'
@@ -2334,6 +2461,6 @@ CSeg            ends
 ;        db      STACKLEN dup (?)
 ; SSeg            ends
 
-        end     Main0	; *** can be Main for .exe version ***
+        end	; *** can be Main for .exe version ***
 
 

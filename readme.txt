@@ -1,17 +1,41 @@
-    DEVLOAD 3.20 USER GUIDE
+
+    DEVLOAD 3.21 USER GUIDE
     -----------------------
 
     DEVLOAD is an utility for loading device drivers from command line.
-It supports FAT16 & FAT32 block device drivers   (e.g. DI1000DD.SYS and
-ASPIDISK.SYS),  COM & EXE  -  style  DOS  device drivers and has a very
-compact binary file (less than 3Kb). 
+    It supports FAT16 and FAT32 block device drivers (e.g. DI1000DD.SYS
+    and ASPIDISK.SYS), COM and EXE - style DOS device drivers and has a
+    very compact binary file (less than 3KiB).
+
+    Licence
+    -------
+
+     Devload - a tool to load DOS device drivers from the command line
+       Copyright (c) 1992-1998 David Woodhouse <dwmw2@infradead.org>
+          Copyright (c) 2004-2008 Eric Auer <eric@coli.uni-sb.de>
+
+    This program is free software  you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation  either version 2 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY  without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License along
+    with this program  if not, write to the Free Software Foundation, Inc.,
+    51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
     Usage
     -----
+
     Usage:    DEVLOAD [switches] filename [params]
     Emulates: DEVICE=filename [params] in CONFIG.SYS
 
     Switches:
+
       /? - display help message.
       /H - try to load driver to UMB.
            (equivalent of DEVICEHIGH=filename [params] in CONFIG.SYS)
@@ -19,7 +43,30 @@ compact binary file (less than 3Kb).
       /V - verbose mode.
       /A - auto-mode (force to stay loaded).
 
+    Explanations:
+
+      If no filename is given or if the /? option is given, DEVLOAD
+      shows a help message. The /Q mode makes DEVLOAD show fewer
+      messages than usual (only warnings) while /V makes it show
+      more messages, including technical and memory usage details.
+
+      The /A option bypasses the "driver wants to stay in RAM but
+      hooks no interrupts and provides no block nor char devices,
+      keep it in RAM anyway?" question by always assuming that the
+      answer is yes. Only very few drivers are affected by this.
+
+      With the /H option, DEVLOAD will try to behave like DEVICEHIGH
+      and load your driver into UMB. If you have no UMB of sufficient
+      size (at least file size or, if exe header present, load size
+      plus minimum heap according to the exe header), the driver will
+      be loaded into low RAM as if you had not used the /H option.
+
+      Note that your driver may say that your UMB is too small even
+      if DEVLOAD thinks it is sufficient. Then your driver will not
+      load and you will have to load without the /H option instead.
+
     Examples:
+
       1) USBASPI from command line
          DEVLOAD /H USBASPI.SYS /V /W
          DEVLOAD /H DI1000DD.SYS
@@ -29,27 +76,29 @@ compact binary file (less than 3Kb).
 
     System requirements
     -------------------
+
     * DOS 3.00 and higher
-    * Intel 8086 CPU, 640Kb of RAM
+    * Intel 8086 CPU, 640KiB of RAM
     * MS-DOS 7.1/8.0, PC-DOS 7.1, LZ-DOS 7.1, 
-      FreeDOS 1.0, EDR-DOS WIP 17.6.2007+
+      FreeDOS 1.0 or EDR-DOS WIP 17.6.2007+
       for FAT32 block device drivers support
     
     WARNING: DEVLOAD cannot load FAT32 block device drivers under PTS-DOS 32!   
 
     Files
     -----
-    DEVLOAD.COM  Binary file
-    DEVLOAD.ASM  Source code for TASM and ArrowASM
-    FMAKE.BAT    "Make" script for ArrowASM/WarpLink/UPX
-    MAKE.BAT     "Make" script for TASM/TLINK/UPX
-    README.TXT   This file
+
+    DEVLOAD.COM  Binary file. You only need this file to run DEVLOAD
+    DEVLOAD.ASM  Source code for NASM, version history information
+    MAKEDEVL.BAT "Make" script for NASM and UPX (see URLs below)
+    README.TXT   The file you are reading right now :-)
+    LICENCE.TXT  GNU GPL v2, DEVLOAD is free open source software
 
     Compilation
     -----------
-    If you have TASM, TLINK and UPX, run MAKE.BAT.
-    If you have ArrowASM, WarpLink and UPX, run FMAKE.BAT.
 
-    ArrowASM: http://www.programmersheaven.com/download/1340/download.aspx
-    WarpLink: http://www.devoresoftware.com/freesource/wlsrc.htm     
+    Install NASM and UPX and run MAKEDEVL.BAT
+
     UPX:      http://upx.sourceforge.net/
+    NASM:     http://nasm.sourceforge.net/
+
