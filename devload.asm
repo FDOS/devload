@@ -3,14 +3,14 @@
 
 ;       TITLE   DEVLOAD         to load device drivers from command line.
 ;       FORMAT  EXE		; *** changed to COM in 3.12/newer ***
-;       VERSION 3.18
+;       VERSION 3.19
 ;       CODE    80x86
 ;       OPTIONS /ML
 ;       TIME    CHECK
 ;       DATE    12/3/92 - 31/3/98
 ;       AUTHOR  David Woodhouse
 ;        (C) 1992, 1993 David Woodhouse.
-;	Patches for 3.12 to 3.16, 3.17 / 3.18: 2004 to 2005, 2007 by Eric Auer
+;	Patches for 3.12 to 3.16, 3.17 - 3.19: 2004 to 2005, 2007 by Eric Auer
 
 ; EXPLANATION...
 ;       The program first relocates itself to the top of the available memory
@@ -143,6 +143,11 @@
 ;                          version if DOS 5+, provide make.bat file.
 ;                        - Eric: Tuned messages to get 3069 byte .com
 ;                          (with UPX 2.02d --8086 --best)
+
+; Version 3.19 2/8/2007  - Eric: must also set overlay relocation factor
+;                          otherwise drivers in EXE format will crash
+;                          Also tune error messages, use generic text
+;                          for unlikely messages. Shorten help a bit.
 
 ; .............................IMPROVEMENT IDEAS.............................
 
@@ -301,6 +306,7 @@ keepumbs:				; *** end of added part ***
         ; Store segment of device.
 
 grablowok:      mov     DvcSeg,ax
+		mov	DvcSeg+2,ax	; ALSO adjust relocation! 8/2007
                 mov     BlockSize,bx
 
 				; *** added because of UMB alloc strat ***
@@ -404,7 +410,7 @@ parmsgiven:     mov     word ptr [bx],0A0Dh
 
 noprintfname:   mov     dx,offset NameBuffer
                 mov     bx,offset DvcSeg
-                mov     ax,4B03h
+                mov     ax,4B03h	; load overlay
                 int     21h
                 jnc     loadedok
 
@@ -875,7 +881,7 @@ noprintints:    les     bx,Invar
                 cld
                 add     di,2
 
-        ; Point to arena header of driver segment.
+        ; Point to arena header / MCB of driver segment.
 
                 mov     ax,DvcSeg
                 dec     ax
@@ -888,7 +894,7 @@ noprintints:    les     bx,Invar
 
         ; DS:TopCSeg, ES:DvcSeg-1
 
-        ; Move name into arena header.
+        ; Move name into arena header / MCB
 
                 mov     si,di
                 mov     di,8
@@ -992,15 +998,15 @@ PrintError:     push    ax
 
                 call    PHWord
 
-        ; If over 0Bh, zero it - (unknown).
+        ; If over 9, set it to slot 0 which has "ErrUnknown"
 
-                cmp     ax,000Bh
-                jb      notoverB
+                cmp     ax,9
+                jb      notover9
                 xor     ax,ax
 
         ; Look up offset of error message.
 
-notoverB:       mov     bx,offset ErrTable
+notover9:       mov     bx,offset ErrTable
                 shl     ax,1
                 add     bx,ax
                 mov     dx,ds:[bx]	; 3.16: explicit segment
@@ -1500,27 +1506,30 @@ TooBigMsg       db 13,10,'Error: Driver wants too much memory.',13,10,24h
 Err2            db 'h - File not found)',13,10,24h
 Err3            db "h - Dir not found)",13,10,24h
 Err5            db 'h - Access denied)',13,10,24h
-Err7            db 'h - Arena header bad)',13,10,24h
+Err7            db 'h - MCB bad)',13,10,24h ; MCB destroyed, Arena header bad
 Err8            db 'h - Out of memory)',13,10,24h
-Err9            db 'h - Wrong seg?)',13,10,24h
+Err9            db 'h - MCB not found)',13,10,24h
 ; ***           db ' PLEASE INFORM THE AUTHOR!',13,10,24h
-ErrB            db 'h - Format invalid)',13,10,24h
+; ErrB            db 'h - Format invalid)',13,10,24h
+		; FreeDOS only returns error 0b, DE_INVLDFMT, if you
+		; try to use DosExec with mode&7f not in 0, 1, 3,
+		; in other words if you use int 21.4b with bad AL
 ErrUnknown      db 'h'
 BadSwitchMsg2   db ')',13,10,24h
 
 
-ErrTable        dw      ErrUnknown
-                dw      ErrUnknown
-                dw      Err2
-                dw      Err3
-                dw      ErrUnknown
-                dw      Err5
-                dw      ErrUnknown
-                dw      Err7
-                dw      Err8
-                dw      Err9
-                dw      ErrUnknown
-                dw      ErrB
+ErrTable        dw      ErrUnknown	; no error
+                dw      ErrUnknown	; function nr. bad / unsupported
+                dw      Err2		; file not found
+                dw      Err3		; path / dir not found
+                dw      ErrUnknown	; <-- too many files open
+                dw      Err5		; access denied (to file / dir)
+                dw      ErrUnknown	; invalid (file) handle
+                dw      Err7		; MCB bad (has no M, Z... header)
+                dw      Err8		; out of memory
+                dw      Err9		; MCB addr invalid
+;                 dw      ErrUnknown	; env bad (> 32k long, in exec)
+;                 dw      ErrUnknown ; ErrB	; can happen in int 21.4b
 
 ; ............................PROGRAM DATA...................................
 
@@ -1543,6 +1552,7 @@ EndSeg          dw      ?	; segment, end of required memory.
 PSPSeg          dw      ?
 
 PathPtr         dd      0
+EmptyPath	dw	0
 
 NameBuffer      db      80h dup(?)
                   
@@ -1584,11 +1594,11 @@ LASTBYTE        equ     $
 
 ; ................DATA WHICH ISN'T NEEDED AFTER RELOCATION...................
 
-SignOnMsg       db 'DEVLOAD v3.18 (C) 1992 - 1996 David Woodhouse '
+SignOnMsg       db 'DEVLOAD v3.19 (C) 1992-1996 David Woodhouse '
                 db ' <Dave@imladris.demon.co.uk>',13,10
-		db ' Patches for v3.12-3.18 by Eric Auer 2004-2007'
+		db ' Patches for v3.12-3.19 by Eric Auer 2004-2007'
 		db ' <Eric*coli.uni-sb.de>',13,10
-                db ' Loads device drivers from the shell.',13,10
+                db ' Loads device drivers.',13,10
 ; kind of obvious...:	db ' Needs DOS 3 or newer.'
 		db 13,10,24h
 
@@ -1980,7 +1990,8 @@ noprintsignon:
 
         ; Set PathPtr to point to zero - simulate no PATHs left.
 
-                mov     word ptr es:PathPtr,offset DvcSeg+2
+; ???                mov     word ptr es:PathPtr,offset DvcSeg+2
+                mov     word ptr es:PathPtr,offset EmptyPath	; 8/2007
                 mov     word ptr es:PathPtr+2,cs
 
         ; Start with default directory.
