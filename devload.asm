@@ -3,14 +3,14 @@
 
 ;       TITLE   DEVLOAD         to load device drivers from command line.
 ;       FORMAT  EXE		; *** changed to COM in 3.12/newer ***
-;       VERSION 3.19
+;       VERSION 3.20
 ;       CODE    80x86
 ;       OPTIONS /ML
 ;       TIME    CHECK
 ;       DATE    12/3/92 - 31/3/98
 ;       AUTHOR  David Woodhouse
 ;        (C) 1992, 1993 David Woodhouse.
-;	Patches for 3.12 to 3.16, 3.17 - 3.19: 2004 to 2005, 2007 by Eric Auer
+;	Patches for 3.12 to 3.16, 3.17 - 3.20: 2004 to 2005, 2007 by Eric Auer
 
 ; EXPLANATION...
 ;       The program first relocates itself to the top of the available memory
@@ -148,6 +148,10 @@
 ;                          otherwise drivers in EXE format will crash
 ;                          Also tune error messages, use generic text
 ;                          for unlikely messages. Shorten help a bit.
+
+; Version 3.20 13/9/2007 - Alexey: added EDR-DOS support
+;                          (for version WIP 17.6.2007 and newer ONLY!)
+;                          added fmake.bat & readme.txt
 
 ; .............................IMPROVEMENT IDEAS.............................
 
@@ -1594,9 +1598,9 @@ LASTBYTE        equ     $
 
 ; ................DATA WHICH ISN'T NEEDED AFTER RELOCATION...................
 
-SignOnMsg       db 'DEVLOAD v3.19 (C) 1992-1996 David Woodhouse '
+SignOnMsg       db 'DEVLOAD v3.20 (C) 1992-1996 David Woodhouse '
                 db ' <Dave@imladris.demon.co.uk>',13,10
-		db ' Patches for v3.12-3.19 by Eric Auer 2004-2007'
+		db ' Patches for v3.12-3.20 by Eric Auer 2004-2007'
 		db ' <Eric*coli.uni-sb.de>',13,10
                 db ' Loads device drivers.',13,10
 ; kind of obvious...:	db ' Needs DOS 3 or newer.'
@@ -1700,26 +1704,39 @@ ver3:		; DR DOS up to 7.00 "are DOS 3.31" but pre-DR-6.0 fail:
 ; (drive parameter block) items, 20h bytes in DOS 3.x, 21h in 4.0-6.0
 ; FAT32 DPB start like FAT1x ones, but are 1ch bytes longer ... (3.17)
 realver3:	mov     LDrSize,51h
-		mov     byte ptr BlHSize,20h
+		mov     byte ptr BlHSize,20h 
 		mov     NextBlHOfs,18h
 		jmp	short classicver
 
 okver:		; Check FAT32 compatibility: VER >= 7.01
-		; (new in 3.17, extended in 3.18)
+		; (new in 3.17, extended in 3.18 and in 3.20)
 		cmp	al,5	 ; new 3.17
 		jb	classicver
+		push	ax       ; Save DOS version from int 21.3000
+		push    bx       ; Save OEM ID      from int 21.3000
 		mov	ax,3306h ; Get true DOS version
 		int	21h
 		mov	cl,8     ; Swap BH and BL
 		ror	bx,cl    ; 
 		cmp	bx,0701h ; VER >= 7.01 ?
+                pop	bx       ; Restore DOS version from int 21.3000
+		pop	ax       ; Restore OEM ID      from int 21.3000 
 		jb	classicver		
 
 	; FAT32 aware version: larger DPB, but same DPB pointer / CDS size
-		mov     byte ptr BlHSize,003Dh	; new 3.17
+		mov	ch, 3Dh    ; Set BlHSize (new in 3.20)
+		; Check EDR-DOS presence (added in 3.20)
+		; This code is required because EDR-DOS uses non-typical
+		; FAT32 DPB (it has 65 b size instead of 61 b)
+		jne	stdFAT32   ; If VER != 7.01 - it is not EDR-DOS
+		cmp	bx, 0EE00h ; 0EE00h is EDR-DOS OEM ID
+		jne	stdFAT32   ;
+		cmp	ax, 00006h ; EDR-DOS always returns ver 6.00
+		jne	stdFAT32   ; after calling function int 21.3000
+		mov	ch, 41h    ; Increase DPB size for EDR-DOS (added in 3.20)
+stdFAT32:	mov	byte ptr BlHSize, ch ; Set FAT32 DPB size (3Dh or 41h)
 
 classicver:
-
         ; Check command line.
 
                 mov     ds,PSPSeg
