@@ -1,5 +1,5 @@
 
-    DEVLOAD 3.21 USER GUIDE
+    DEVLOAD 3.22 USER GUIDE
     -----------------------
 
     DEVLOAD is an utility for loading device drivers from command line.
@@ -13,6 +13,7 @@
      Devload - a tool to load DOS device drivers from the command line
        Copyright (c) 1992-1998 David Woodhouse <dwmw2@infradead.org>
           Copyright (c) 2004-2008 Eric Auer <eric@coli.uni-sb.de>
+		  Copyright (c) 2011 
 
     This program is free software  you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -92,6 +93,7 @@
     DEVLOAD.ASM  Source code for NASM, version history information
     MAKEDEVL.BAT "Make" script for NASM and UPX (see URLs below)
     README.TXT   The file you are reading right now :-)
+	READ.ME      Note about origin of DEVLOAD with FreeDOS (TM)
     LICENCE.TXT  GNU GPL v2, DEVLOAD is free open source software
 
     Compilation

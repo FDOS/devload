@@ -1,8 +1,11 @@
 @ECHO OFF
-rem if you have tasm: tasm  devload.asm
-rem asm is ArrowASM - freeware
-asm devload.asm devload.obj nul.lst nul.crf
-rem tlink is part of Turbo C 2.01 - freeware
-tlink devload.obj /t
-rem upx is and open source binary packer
+rem No longer using TASM/ArrowASM and TLink/WarpLink...
+rem tasm devload.asm devload.obj nul.lst nul.crf
+rem asm devload.asm devload.obj nul.lst nul.crf
+rem warplink /c devload.obj
+rem tlink /t devload.obj , , nul.map ,
+rem
+rem nasm - open source assembler
+nasm -O5 -o devload.com devload.asm
+rem upx - open source binary packer
 upx --8086 --best devload.com

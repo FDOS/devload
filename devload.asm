@@ -1,12 +1,10 @@
 ; .....................PROGRAM HEADER FOR PROJECT BUILDER....................
 
 ;       TITLE   DEVLOAD         to load device drivers from command line.
-;       FORMAT  EXE		; *** changed to COM in 3.12/newer ***
-;       VERSION 3.21
+;       FORMAT  COM
+;       VERSION 3.22
 ;       CODE    80x86
-;       OPTIONS /ML		; *** NASM -o devload.com in 3.21/newer ***
-;       TIME    CHECK
-;       DATE    12/3/92 - 31/3/98
+;       BUILD   NASM -o devload.com in 3.21/newer ***
 ;       AUTHOR  David Woodhouse
 
 ;        (C) 1992, 1993 David Woodhouse.
@@ -16,7 +14,7 @@
 
 
 ;  Devload - a tool to load DOS device drivers from the command line
-;        Copyright (c) 1992-2008 David Woodhouse and Eric Auer
+;        Copyright (c) 1992-2011 David Woodhouse and Eric Auer
 ;
 ;  This program is free software; you can redistribute it and/or modify
 ;  it under the terms of the GNU General Public License as published by
@@ -182,6 +180,9 @@
 ;                          driver needs at least. Tuned messages again.
 ;                          GNU GPL info (see infradead.org) added here.
 
+; Version 3.22 14/7/2011 - Jeremy: if error testing umb size don't fall
+;                          through and do double allocations, 2nd failing
+
 ; .............................IMPROVEMENT IDEAS.............................
 
 
@@ -272,7 +273,6 @@ relenvok:       push    cs
                 int     21h
                 mov     [OldAllocStrat],ax
 
-		mov	bx, 0ffffh	; max. amount 1 MB if loading LOW
 		mov	bp,1		; default: no special UMB link state
 
 		test	byte [ModeFlag], UMBFlag
@@ -284,12 +284,15 @@ relenvok:       push    cs
 					; (4xh is only UMB, 00h is low only)
 					; (x0h first, x1h best, x2h last fit)
                 int     21h
+                jc      lowload         ; TODO print message, no UMB available
 		mov	ax,5802h	; get UMB link state
 		int	21h
+                xor     ah, ah
 		mov	bp,ax		; store link state (AL is 1 if linked)
 		mov	ax,5803h	; set UMB link state (!)
 		mov	bx,1		; make UMBs part of the DOS mem chain!
 		int	21h
+                jc      lowload         ; assume no UMB available
 ;		mov	bx,0fffh	; never desire > 64k of UMBs
 		mov	bx,7fffh	; ask unrealistic size UMB
 		mov	ah,48h
@@ -303,14 +306,13 @@ relenvok:       push    cs
                 mov     ax,5801h	; set new alloc strat: UMB first
                 mov     bx,80h		; (8xh is try UMB first, low 2nd)
 		int	21h
-		mov	bx,0ffffh	; ask unrealistic size, 1 MB
 
 lowload:			; *** end of added code ***
 
         ; Find out how much memory is available by asking for stupid amounts.
 
                 mov     ah,48h
-;               mov     bx,0FFFFh	; now depends on load location
+                mov     bx,0FFFFh	; ask unrealistic size, 1 MB
                 int     21h
 
         ; In MS-DOS version 6 and below, this will always fail, but check
@@ -333,6 +335,7 @@ sizeok:         mov     ah,48h
                 jnc     grablowok
 
 				; *** added because of UMB alloc strat ***
+                push    ax              ; store error code for alloc
                 mov     ax,5801h	; set (here: restore) alloc strat
                 mov     bx,[OldAllocStrat]
 		mov	bh,0		; sanitize
@@ -342,6 +345,7 @@ sizeok:         mov     ah,48h
 		mov	ax,5803h	; set UMB link state (!)
 		mov	bx,0		; remove UMBs from chain again
                 int     21h
+                pop     ax              ; restore error code from alloc
 keepumbs:				; *** end of added part ***
 
         ; Failed to grab memory - print error and exit.
@@ -1557,13 +1561,13 @@ TooBigMsg       db "Error: Driver overflowed memory allocation."
 
         ; Error cause messages.
 
+Err1    	db 'h - invalid request)',13,10,24h
 Err2            db 'h - File not found)',13,10,24h
 Err3            db "h - Dir not found)",13,10,24h
 Err5            db 'h - Access denied)',13,10,24h
 Err7            db 'h - MCB bad)',13,10,24h ; MCB destroyed, Arena header bad
 Err8            db 'h - Out of memory)',13,10,24h
 Err9            db 'h - MCB not found)',13,10,24h
-ErrBadFile	db 'h - File read error)',13,10,24h
 ; ***           db ' PLEASE INFORM THE AUTHOR!',13,10,24h
 ; ErrB            db 'h - Format invalid)',13,10,24h
 		; FreeDOS only returns error 0b, DE_INVLDFMT, if you
@@ -1574,7 +1578,7 @@ BadSwitchMsg2   db ')',13,10,24h
 
 
 ErrTable        dw      ErrUnknown	; no error
-                dw      ErrBadFile	; function nr. bad / unsupported
+                dw      Err1    	; function nr. bad / unsupported
                 dw      Err2		; file not found
                 dw      Err3		; path / dir not found
                 dw      ErrUnknown	; <-- too many files open
@@ -1651,11 +1655,11 @@ LASTBYTE        equ     $
 
 ; ................DATA WHICH ISN'T NEEDED AFTER RELOCATION...................
 
-SignOnMsg	db 'DEVLOAD v3.21 - load DOS device drivers '
+SignOnMsg	db 'DEVLOAD v3.22 - load DOS device drivers '
 		db '- license' ; db '- free -'
 		db ' GNU General Public License 2',13,10
-		db '(c) 1992-2008 David Woodhouse dwmw2@infradead.org '
-		db 'Eric Auer eric@coli.uni-sb.de',13,10
+		db '(c) 1992-2011 David Woodhouse, Eric Auer '
+		db '(FreeDOS.org)',13,10
 		db 13,10,24h
 %if 0
 		db 'DEVLOAD v3.21 (C) 1992-1996 David Woodhouse '
@@ -2461,6 +2465,6 @@ BREAKPOINT1:    ; ret far	; *** Arrowsoft ASM screws up retf / ret far
 ;        db      STACKLEN dup (?)
 ; SSeg            ends
 
-        end	; *** can be Main for .exe version ***
+;       end	; *** can be Main for .exe version ***
 
 
