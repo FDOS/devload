@@ -2,7 +2,7 @@
 
 ;       TITLE   DEVLOAD         to load device drivers from command line.
 ;       FORMAT  COM
-;       VERSION 3.22
+;       VERSION 3.23
 ;       CODE    80x86
 ;       BUILD   NASM -o devload.com in 3.21/newer ***
 ;       AUTHOR  David Woodhouse
@@ -182,6 +182,9 @@
 
 ; Version 3.22 14/7/2011 - Jeremy: if error testing umb size don't fall
 ;                          through and do double allocations, 2nd failing
+
+; Version 3.23 02/8/2011 - Jeremy: don't overwrite CDS in use by non-block
+;                          driver
 
 ; .............................IMPROVEMENT IDEAS.............................
 
@@ -527,10 +530,36 @@ noprintladdr:   mov     ah,52h
 
         ; DS:TopCSeg, ES:InvarSeg
 
-        ; Fetch LastDrUsed and LastDrive from 'invar' (list of lists)
+        ; Fetch nBlkDev and LastDrive from 'invar' (list of lists)
 
                 mov     ax,[es:bx+20h]
-                mov     word [LastDrUsed],ax
+                mov     word [nBlkDev],ax		; *** updates nBlkDev & LastDrive
+				
+		; Determine 1st free CDS entry 				
+				push	bx
+				push	es
+
+				; Get pointer to LASTDRIVE array (Current Directory Structure - CDS).
+                les     bx,[es:bx+16h]
+
+				; Calculate offset in CDS array of next free entry (>= current # of block devices)
+                dec     al						; AX set earlier to nBlkDev, -1 for zero based
+				mov		[LastDrUsed], al		; default to assume only block drivers have CDS entry
+                mov     ah,[LDrSize]
+                mul     ah
+                ; loop until free entry is found
+CDSinuse:
+                add     bx,ax
+                inc     byte [LastDrUsed]
+                test    byte [es:bx+44h], 0C0h ; CDS[AX].flags & 0C00h != 0 then drive in use
+                jz      CDSfound
+                ; increment to next CDS entry
+                mov     al,[LDrSize]
+                cbw
+                jmp     CDSinuse
+CDSfound:
+				pop		es
+				pop		bx
 
         ; Fetch max. sector size from 'invar' (list of lists)
 
@@ -765,11 +794,11 @@ noblocks:       mov     bl,[CharsDone]
                 inc     dx
 chnoplural:     int     21h
 
-        ; Insert new LastDrUsed into 'invar'. (list of lists)
+        ; Insert new nBlkDev into 'invar'. (list of lists)
 
 noprintnuminst: les     bx,[Invar]
 
-                mov     al,[LastDrUsed]
+                mov     al,[nBlkDev]
                 mov     byte [es:bx+20h],al
 
         ; Restore driver size in paragraphs.
@@ -1303,9 +1332,9 @@ secsizeok:      mov     al,[cs:LastDrUsed]
                 jnz     ldrok
                 jmp     ldrerr
 
-        ; Increase LastDrUsed.
+        ; Increase nBlkDev.
 
-ldrok:          inc     byte [cs:LastDrUsed]
+ldrok:          inc     byte [cs:nBlkDev]
 
         ; Store absolute block no. and block no. in device.
 
@@ -1615,6 +1644,7 @@ EmptyPath	dw	0
 
 NameBuffer      times	80h	db	0	; resb      80h
                   
+nBlkDev			db	0	; resb	1
 LastDrUsed      db	0	; resb	1
 LastDrive       db	0	; resb	1
 
@@ -1655,7 +1685,7 @@ LASTBYTE        equ     $
 
 ; ................DATA WHICH ISN'T NEEDED AFTER RELOCATION...................
 
-SignOnMsg	db 'DEVLOAD v3.22 - load DOS device drivers '
+SignOnMsg	db 'DEVLOAD v3.23 - load DOS device drivers '
 		db '- license' ; db '- free -'
 		db ' GNU General Public License 2',13,10
 		db '(c) 1992-2011 David Woodhouse, Eric Auer '
