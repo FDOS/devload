@@ -519,6 +519,7 @@ loadedok:       test    byte [ModeFlag],VerboseFlag	; *** byte ptr ***
         ; DS:TopCSeg, ES:TopCSeg
 
         ; Get pointer to 'invar' (list of lists)
+        
 noprintladdr:   mov     ah,52h
                 int     21h
 
@@ -532,18 +533,18 @@ noprintladdr:   mov     ah,52h
         ; Fetch nBlkDev and LastDrive from 'invar' (list of lists)
 
                 mov     ax,[es:bx+20h]
-                mov     word [nBlkDev],ax		; *** updates nBlkDev & LastDrive
-				
-		; Determine 1st free CDS entry 				
-		push	bx
-		push	es
+                mov     word [nBlkDev],ax               ; *** updates nBlkDev & LastDrive
 
-		; Get pointer to LASTDRIVE array (Current Directory Structure - CDS).
+                ; Determine 1st free CDS entry
+                push	bx
+                push	es
+
+                ; Get pointer to LASTDRIVE array (Current Directory Structure - CDS).
                 les     bx,[es:bx+16h]
 
 		; Calculate offset in CDS array of next free entry (>= current # of block devices)
-                dec     al				; AX set earlier to nBlkDev, -1 for zero based
-		mov	[LastDrUsed], al		; default to assume only block drivers have CDS entry
+                dec     al                              ; AX set earlier to nBlkDev, -1 for zero based
+                mov	[LastDrUsed], al                ; default to assume only block drivers have CDS entry
                 mov     ah,[LDrSize]
                 mul     ah
                 ; loop until free entry is found
@@ -557,8 +558,8 @@ CDSinuse:
                 cbw
                 jmp     CDSinuse
 CDSfound:
-				pop		es
-				pop		bx
+                pop     es
+                pop     bx
 
         ; Fetch max. sector size from 'invar' (list of lists)
 
