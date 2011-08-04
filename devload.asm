@@ -519,9 +519,9 @@ loadedok:       test    byte [ModeFlag],VerboseFlag	; *** byte ptr ***
         ; DS:TopCSeg, ES:TopCSeg
 
         ; Get pointer to 'invar' (list of lists)
-
 noprintladdr:   mov     ah,52h
                 int     21h
+        int 3
 
         ; Store for later use.
 
@@ -536,24 +536,24 @@ noprintladdr:   mov     ah,52h
                 mov     word [nBlkDev],ax		; *** updates nBlkDev & LastDrive
 				
 		; Determine 1st free CDS entry 				
-				push	bx
-				push	es
+		push	bx
+		push	es
 
-				; Get pointer to LASTDRIVE array (Current Directory Structure - CDS).
+		; Get pointer to LASTDRIVE array (Current Directory Structure - CDS).
                 les     bx,[es:bx+16h]
 
-				; Calculate offset in CDS array of next free entry (>= current # of block devices)
-                dec     al						; AX set earlier to nBlkDev, -1 for zero based
-				mov		[LastDrUsed], al		; default to assume only block drivers have CDS entry
+		; Calculate offset in CDS array of next free entry (>= current # of block devices)
+                dec     al				; AX set earlier to nBlkDev, -1 for zero based
+		mov	[LastDrUsed], al		; default to assume only block drivers have CDS entry
                 mov     ah,[LDrSize]
                 mul     ah
                 ; loop until free entry is found
 CDSinuse:
                 add     bx,ax
-                inc     byte [LastDrUsed]
                 test    byte [es:bx+44h], 0C0h ; CDS[AX].flags & 0C00h != 0 then drive in use
                 jz      CDSfound
                 ; increment to next CDS entry
+                inc     byte [LastDrUsed]
                 mov     al,[LDrSize]
                 cbw
                 jmp     CDSinuse
@@ -1395,7 +1395,7 @@ noprintblhmsg:  lds     bx,[Invar]
         ; Calculate offset in array of entry for this drive.
 
                 mov     al,[cs:LastDrUsed]
-                dec     al
+                ;dec     al  ; **** remove me?
                 mov     ah,[cs:LDrSize]
                 mul     ah
                 add     bx,ax
@@ -1644,9 +1644,9 @@ EmptyPath	dw	0
 
 NameBuffer      times	80h	db	0	; resb      80h
                   
-nBlkDev			db	0	; resb	1
+nBlkDev		db	0	; resb	1       ; Note: nBlkDev & LastDrive
+LastDrive       db	0	; resb	1       ; must be together as loaded from LoL together
 LastDrUsed      db	0	; resb	1
-LastDrive       db	0	; resb	1
 
 OldAllocStrat   dw	0	; resw	1	; DOS allocation strategy
 BlockSize       dw	0	; resw	1
