@@ -2,7 +2,7 @@
 
 ;       TITLE   DEVLOAD         to load device drivers from command line.
 ;       FORMAT  COM
-;       VERSION 3.23
+;       VERSION 3.24
 ;       CODE    80x86
 ;       BUILD   NASM -o devload.com in 3.21/newer ***
 ;       AUTHOR  David Woodhouse
@@ -185,6 +185,11 @@
 
 ; Version 3.23 02/8/2011 - Jeremy: don't overwrite CDS in use by non-block
 ;                          driver
+
+; Version 3.24 04/08/2011 - Jeremy: improve handling holes in and lack of
+;                           free CDS better, add /D option to specify
+;                           which CDS slot to begin free search from -
+;                           i.e. what drive letter to assign device
 
 ; .............................IMPROVEMENT IDEAS.............................
 
@@ -531,6 +536,7 @@ noprintladdr:   mov     ah,52h
         ; DS:TopCSeg, ES:InvarSeg
 
         ; Fetch nBlkDev and LastDrive from 'invar' (list of lists)
+   int 3
 
                 mov     ax,[es:bx+20h]
                 mov     word [nBlkDev],ax               ; *** updates nBlkDev & LastDrive
@@ -543,17 +549,19 @@ noprintladdr:   mov     ah,52h
                 les     bx,[es:bx+16h]
 
 		; Calculate offset in CDS array of next free entry (>= current # of block devices)
-                dec     al                              ; AX set earlier to nBlkDev, -1 for zero based
-                mov	[LastDrUsed], al                ; default to assume only block drivers have CDS entry
+                mov     al,[LastDrUsed]         ; [LastDrUsed] init to drive to begin search with
                 mov     ah,[LDrSize]
                 mul     ah
                 ; loop until free entry is found
 CDSinuse:
                 add     bx,ax
-                test    byte [es:bx+44h], 0C0h ; CDS[AX].flags & 0C00h != 0 then drive in use
+                test    byte [es:bx+44h], 0C0h  ; CDS[AX].flags & 0C00h != 0 then drive in use
                 jz      CDSfound
                 ; increment to next CDS entry
                 inc     byte [LastDrUsed]
+                mov     al,[LastDrive]
+                cmp     al,[LastDrUsed]
+                jb      CDSfound                ; no free CDS, user notified in InstallDevice
                 mov     al,[LDrSize]
                 cbw
                 jmp     CDSinuse
@@ -1645,9 +1653,9 @@ EmptyPath	dw	0
 
 NameBuffer      times	80h	db	0	; resb      80h
                   
-nBlkDev		db	0	; resb	1       ; Note: nBlkDev & LastDrive
-LastDrive       db	0	; resb	1       ; must be together as loaded from LoL together
-LastDrUsed      db	0	; resb	1
+nBlkDev         db  0   ; resb  1   ; Note: nBlkDev & LastDrive
+LastDrive       db  0   ; resb  1   ; must be together as loaded from LoL together
+LastDrUsed      db  1               ; default to C:, may be overridden by cmd line option
 
 OldAllocStrat   dw	0	; resw	1	; DOS allocation strategy
 BlockSize       dw	0	; resw	1
@@ -1686,7 +1694,7 @@ LASTBYTE        equ     $
 
 ; ................DATA WHICH ISN'T NEEDED AFTER RELOCATION...................
 
-SignOnMsg	db 'DEVLOAD v3.23 - load DOS device drivers '
+SignOnMsg	db 'DEVLOAD v3.24 - load DOS device drivers '
 		db '- license' ; db '- free -'
 		db ' GNU General Public License 2',13,10
 		db '(c) 1992-2011 David Woodhouse, Eric Auer '
@@ -1710,6 +1718,7 @@ HelpMsg1	db 'Usage:    DEVLOAD [switches] filename [params]',13,10
                 db '      /Q - quiet mode.',13,10
                 db '      /V - verbose mode.',13,10
                 db '      /A - auto-mode (see docs).',13,10
+                db '      /D - drive letter, eg. /DS installs to S: or later.',13,10
 		db 13,10
 		db 'DEVLOAD is free software. It comes with NO waranty.',13,10
                 db 'Debug hints: self-reloc @ $'
@@ -1913,6 +1922,8 @@ isswitch:       lodsw
                 jz      auto
                 cmp     ah,'V'
                 jz      verbose
+                cmp     ah,'D'
+                jz      driveletter
 
         ; Unrecognised switch - print error and exit.
 
@@ -1979,7 +1990,14 @@ auto:           or      byte [cs:ModeFlag],AutoFlag
 
 quiet:          or      byte [cs:ModeFlag],QuietFlag
                 and     byte [cs:ModeFlag],~ VerboseFlag
-		jmp	short switchloop	; optimization 3.16
+                jmp	short switchloop	; optimization 3.16
+
+        ; Set initial drive letter to assign device to (or 1st available after this one)
+driveletter:
+                lodsb           ; get drive letter, spaces before it are not supported e.g. /DS
+                sub     al,65   ; convert letter to 0 based #, cmd line upcased above so -'A'
+                mov     [CS:LastDrUsed], al
+                jmp     short switchloop
 
         ; Set load into UMB (devicehigh) mode flag.
 
