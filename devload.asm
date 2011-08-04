@@ -521,7 +521,6 @@ loadedok:       test    byte [ModeFlag],VerboseFlag	; *** byte ptr ***
         ; Get pointer to 'invar' (list of lists)
 noprintladdr:   mov     ah,52h
                 int     21h
-        int 3
 
         ; Store for later use.
 
@@ -735,7 +734,9 @@ somedone:       push    cs
                 test    byte [ModeFlag],VerboseFlag	; *** byte ptr ***
                 jz      noprintldrmsg
 
-                mov     ax,word [LastDrUsed]
+                mov     al,byte [LastDrUsed]
+                inc     al
+                mov     ah,byte [LastDrive]
 
                 mov     byte [LDMsgA], byte 'A'-1	; explicit byte 3.16
 ;		nop					; mimick ASM
@@ -1395,7 +1396,6 @@ noprintblhmsg:  lds     bx,[Invar]
         ; Calculate offset in array of entry for this drive.
 
                 mov     al,[cs:LastDrUsed]
-                ;dec     al  ; **** remove me?
                 mov     ah,[cs:LDrSize]
                 mul     ah
                 add     bx,ax
