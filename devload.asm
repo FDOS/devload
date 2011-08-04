@@ -186,10 +186,11 @@
 ; Version 3.23 02/8/2011 - Jeremy: don't overwrite CDS in use by non-block
 ;                          driver
 
-; Version 3.24 04/08/2011 - Jeremy: improve handling holes in and lack of
-;                           free CDS better, add /D option to specify
-;                           which CDS slot to begin free search from -
-;                           i.e. what drive letter to assign device
+; Version 3.24 04/8/2011 - Jeremy: improve handling holes in and lack of
+;                          free CDS better, add /D option to specify
+;                          which CDS slot to begin free search from -
+;                          i.e. what drive letter to assign device
+;                          Set exit # (errorlevel) to drive# assigned 
 
 ; .............................IMPROVEMENT IDEAS.............................
 
@@ -485,14 +486,20 @@ fileerr:        pop     ax
 
 allocerr:       call    PrintError
 
+        ; Indicate error in exit code
+prexit:
+                mov     al,255
+
         ; Print final message.
 
-prexit:         mov     ah,9
+okexit:         push    ax              ; save exit code that is in AL
+                mov     ah,9
                 int     21h
+                pop     ax
 
         ; Exit program.
 
-exit:           mov     ax,4C00h
+exit:           mov     ah,4Ch
                 int     21h
 
 ; ...........................................................................
@@ -536,7 +543,6 @@ noprintladdr:   mov     ah,52h
         ; DS:TopCSeg, ES:InvarSeg
 
         ; Fetch nBlkDev and LastDrive from 'invar' (list of lists)
-   int 3
 
                 mov     ax,[es:bx+20h]
                 mov     word [nBlkDev],ax               ; *** updates nBlkDev & LastDrive
@@ -561,10 +567,19 @@ CDSinuse:
                 inc     byte [LastDrUsed]
                 mov     al,[LastDrive]
                 cmp     al,[LastDrUsed]
-                jb      CDSfound                ; no free CDS, user notified in InstallDevice
+                jb      nofreeCDS
                 mov     al,[LDrSize]
                 cbw
                 jmp     CDSinuse
+
+        ; No more PATH items or no PATH segment, so print error and exit.
+
+nofreeCDS:      push    cs
+                pop     ds
+                mov     dx,NoFreeCDSMsg
+                jmp     prexit
+                
+                
 CDSfound:
                 pop     es
                 pop     bx
@@ -1003,10 +1018,11 @@ fill0s:         xor     al,al
                 rep     stosb
 
 stayexit:       
+                mov     al, [LastDrUsed]                ; set exit code
                 test    byte [ModeFlag],QuietFlag	; *** new 3.15
                 jnz     stay2exit			; new 3.15
 		mov     dx,StayingMsg
-                jmp     prexit				; exit and show text
+                jmp     okexit				; exit and show text
 stay2exit:	jmp	exit				; new 3.15
 
 
@@ -1653,9 +1669,9 @@ EmptyPath	dw	0
 
 NameBuffer      times	80h	db	0	; resb      80h
                   
-nBlkDev         db  0   ; resb  1   ; Note: nBlkDev & LastDrive
-LastDrive       db  0   ; resb  1   ; must be together as loaded from LoL together
-LastDrUsed      db  1               ; default to C:, may be overridden by cmd line option
+nBlkDev         db      0       ; resb  1       ; Note: nBlkDev & LastDrive
+LastDrive       db      0       ; resb  1       ; must be together as loaded from LoL together
+LastDrUsed      db      2                       ; default to C:, may be overridden by cmd line option
 
 OldAllocStrat   dw	0	; resw	1	; DOS allocation strategy
 BlockSize       dw	0	; resw	1
@@ -1731,6 +1747,7 @@ BadSwitchMsg    db 'Error: Bad switch ($'
 ; NoFileMsg	db 'DEVLOAD /? shows help.',13,10,'$'
 FileNoExistMsg  db "Error: Can't open file ($"
 BadVerMsg       db 'Error: DOS 3 or newer needed.',13,10,'$'
+NoFreeCDSMsg    db 'Error: free drive letter not found, increase LASTDRIVE',13,10,'$' 
 
 
 ; ........MAIN PROGRAM ENTRY POINT - SITUATE ABOVE LASTBYTE BECAUSE..........
