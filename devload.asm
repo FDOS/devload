@@ -567,7 +567,7 @@ CDSinuse:
                 inc     byte [LastDrUsed]
                 mov     al,[LastDrive]
                 cmp     al,[LastDrUsed]
-                jb      nofreeCDS
+                jbe     nofreeCDS
                 mov     al,[LDrSize]
                 cbw
                 jmp     CDSinuse
@@ -1595,6 +1595,7 @@ NumChInstMsg    db '0 char device$'
 NumInstMsgA     db 's installed.',13,10,24h
 LDrErrMsg       db '0 drives skipped - LASTDRIVE overflow.',13,10,24h
 AskEndMsg       db 13,10,'No drives or Ints - unload (Y/N) ? $'
+NoFreeCDSMsg    db 'Error: free drive letter not found, increase LASTDRIVE',13,10,'$' 
 SSizeErrMsg     db 'Sector size too large.',13,10,24h
 
         ; Error messages.
@@ -1747,7 +1748,6 @@ BadSwitchMsg    db 'Error: Bad switch ($'
 ; NoFileMsg	db 'DEVLOAD /? shows help.',13,10,'$'
 FileNoExistMsg  db "Error: Can't open file ($"
 BadVerMsg       db 'Error: DOS 3 or newer needed.',13,10,'$'
-NoFreeCDSMsg    db 'Error: free drive letter not found, increase LASTDRIVE',13,10,'$' 
 
 
 ; ........MAIN PROGRAM ENTRY POINT - SITUATE ABOVE LASTBYTE BECAUSE..........
