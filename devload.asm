@@ -192,6 +192,9 @@
 ;                          i.e. what drive letter to assign device
 ;                          Set exit # (errorlevel) to drive# assigned 
 
+; Version 3.25 05/8/2011 - Jeremy: fix bug where initial CDS not checked,
+;                          adjust return codes to account for char devices
+
 ; .............................IMPROVEMENT IDEAS.............................
 
 
@@ -560,14 +563,16 @@ noprintladdr:   mov     ah,52h
                 mul     ah
                 ; loop until free entry is found
 CDSinuse:
-                add     bx,ax
-                test    byte [es:bx+44h], 0C0h  ; CDS[AX].flags & 0C00h != 0 then drive in use
-                jz      CDSfound
-                ; increment to next CDS entry
-                inc     byte [LastDrUsed]
+                add     bx,ax                   ; update pointer into CDS array
+                ; check that we don't exceed CDS array bounds (> LASTDRIVE)
                 mov     al,[LastDrive]
                 cmp     al,[LastDrUsed]
                 jbe     nofreeCDS
+                ; test flags (CDS[BX].flags) in current CDS entry to see if in use
+                test    byte [es:bx+44h], 0C0h
+                jz      CDSfound
+                ; increment to next CDS entry
+                inc     byte [LastDrUsed]
                 mov     al,[LDrSize]
                 cbw
                 jmp     CDSinuse
