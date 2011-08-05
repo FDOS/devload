@@ -1,5 +1,5 @@
 
-    DEVLOAD 3.23 USER GUIDE
+    DEVLOAD 3.24 USER GUIDE
     -----------------------
 
     DEVLOAD is an utility for loading device drivers from command line.
@@ -43,6 +43,7 @@
       /Q - quiet mode.
       /V - verbose mode.
       /A - auto-mode (force to stay loaded).
+      /D - drive letter, eg. /DS installs to S: or later.
 
     Explanations:
 
@@ -65,6 +66,14 @@
       Note that your driver may say that your UMB is too small even
       if DEVLOAD thinks it is sufficient. Then your driver will not
       load and you will have to load without the /H option instead.
+      
+      The /D option is used to indicate the drive letter to use.
+      If the requested drive is in use then subsequent drive letters
+      until LASTDRIVE is reached are tried.  The final drive used
+      is returned as the exit code, where A:=0, ... Z:=25.  The
+      default value is equivalent to /DC, i.e. C: or later - the
+      first available drive letter.  On any error the exit code
+      will be 255.
 
     Examples:
 
