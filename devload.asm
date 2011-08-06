@@ -2,7 +2,7 @@
 
 ;       TITLE   DEVLOAD         to load device drivers from command line.
 ;       FORMAT  COM
-;       VERSION 3.24
+;       VERSION 3.25
 ;       CODE    80x86
 ;       BUILD   NASM -o devload.com in 3.21/newer ***
 ;       AUTHOR  David Woodhouse
