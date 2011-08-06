@@ -1,5 +1,5 @@
 
-    DEVLOAD 3.24 USER GUIDE
+    DEVLOAD 3.25 USER GUIDE
     -----------------------
 
     DEVLOAD is an utility for loading device drivers from command line.
@@ -69,11 +69,17 @@
       
       The /D option is used to indicate the drive letter to use.
       If the requested drive is in use then subsequent drive letters
-      until LASTDRIVE is reached are tried.  The final drive used
-      is returned as the exit code, where A:=0, ... Z:=25.  The
-      default value is equivalent to /DC, i.e. C: or later - the
-      first available drive letter.  On any error the exit code
-      will be 255.
+      until LASTDRIVE is reached are tried.  The default value is 
+      equivalent to /DC, i.e. C: or later - the first available 
+      drive letter.
+
+      On successful loading the exit code (ERRORLEVEL) will be set
+      to a value between 0 and 26, where 0 is returned for character
+      devices and for block devices the first assigned drive is
+      returned (where 1=A:, 2=B:, 3=C:, ... 26=Z:).  On any error
+      or is device is not loaded then 255 is returned.  [Future
+      versions may provide unique values depending on the error.]
+      is returned as the exit code, where A:=0, ... Z:=25.  
 
     Examples:
 

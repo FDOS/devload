@@ -489,7 +489,7 @@ fileerr:        pop     ax
 
 allocerr:       call    PrintError
 
-        ; Indicate error in exit code
+        ; Indicate error (driver not loaded) in exit code
 prexit:
                 mov     al,255
 
@@ -764,13 +764,10 @@ somedone:       push    cs
                 jz      noprintldrmsg
 
                 mov     al,byte [LastDrUsed]
-                inc     al
                 mov     ah,byte [LastDrive]
 
                 mov     byte [LDMsgA], byte 'A'-1	; explicit byte 3.16
-;		nop					; mimick ASM
                 mov     byte [LDMsgB], byte 'A'-1	; explicit byte 3.16
-;		nop					; mimick ASM
 
                 add     byte [LDMsgA],al
                 add     byte [LDMsgB],ah
@@ -858,7 +855,8 @@ noprintsize:    or      bx,bx
 
         ; Length of driver is zero, so exit now.
 
-                jmp     exit
+                mov     dx,NotLoadedMsg
+                jmp     prexit  ; *** 
 
         ; Check whether it fits in the allocated block.
 
@@ -1023,7 +1021,7 @@ fill0s:         xor     al,al
                 rep     stosb
 
 stayexit:       
-                mov     al, [LastDrUsed]                ; set exit code
+                mov     al, [ExitCode]                  ; set exit code
                 test    byte [ModeFlag],QuietFlag	; *** new 3.15
                 jnz     stay2exit			; new 3.15
 		mov     dx,StayingMsg
@@ -1363,9 +1361,20 @@ secsizeok:      mov     al,[cs:LastDrUsed]
                 jnz     ldrok
                 jmp     ldrerr
 
-        ; Increase nBlkDev.
+        ; Increase count of block devices and update to next free CDS entry
 
-ldrok:          inc     byte [cs:nBlkDev]
+ldrok:
+
+                inc     byte [cs:nBlkDev]
+                inc     byte [cs:LastDrUsed]            ; point to next available drive *** TODO fixme
+
+                ; If 1st block device loaded, store drive letter for returned exit code
+                test    byte [cs:ExitCode], 0
+                jnz     notfirst
+                mov     byte [cs:ExitCode], al          ; al=LastDrUsed where A=0,...,Z=25
+                inc     byte [cs:ExitCode]              ; A=1, ..., Z=26
+                
+notfirst:
 
         ; Store absolute block no. and block no. in device.
 
@@ -1426,6 +1435,7 @@ noprintblhmsg:  lds     bx,[Invar]
         ; Calculate offset in array of entry for this drive.
 
                 mov     al,[cs:LastDrUsed]
+                dec     al
                 mov     ah,[cs:LDrSize]
                 mul     ah
                 add     bx,ax
@@ -1602,6 +1612,7 @@ LDrErrMsg       db '0 drives skipped - LASTDRIVE overflow.',13,10,24h
 AskEndMsg       db 13,10,'No drives or Ints - unload (Y/N) ? $'
 NoFreeCDSMsg    db 'Error: free drive letter not found, increase LASTDRIVE',13,10,'$' 
 SSizeErrMsg     db 'Sector size too large.',13,10,24h
+NotLoadedMsg    db 'Driver not loaded',13,10,'$'
 
         ; Error messages.
 
@@ -1679,6 +1690,8 @@ nBlkDev         db      0       ; resb  1       ; Note: nBlkDev & LastDrive
 LastDrive       db      0       ; resb  1       ; must be together as loaded from LoL together
 LastDrUsed      db      2                       ; default to C:, may be overridden by cmd line option
 
+ExitCode        db      0       ; default to 0 for char devices, 1=A to 26=Z for 1st block device loaded
+
 OldAllocStrat   dw	0	; resw	1	; DOS allocation strategy
 BlockSize       dw	0	; resw	1
 WantedParas	dw	0	; minimum paragraphs or RAM to load driver
@@ -1716,7 +1729,7 @@ LASTBYTE        equ     $
 
 ; ................DATA WHICH ISN'T NEEDED AFTER RELOCATION...................
 
-SignOnMsg	db 'DEVLOAD v3.24 - load DOS device drivers '
+SignOnMsg	db 'DEVLOAD v3.25 - load DOS device drivers '
 		db '- license' ; db '- free -'
 		db ' GNU General Public License 2',13,10
 		db '(c) 1992-2011 David Woodhouse, Eric Auer '
