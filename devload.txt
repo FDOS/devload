@@ -77,9 +77,8 @@
       to a value between 0 and 26, where 0 is returned for character
       devices and for block devices the first assigned drive is
       returned (where 1=A:, 2=B:, 3=C:, ... 26=Z:).  On any error
-      or is device is not loaded then 255 is returned.  [Future
+      or if device is not loaded then 255 is returned.  [Future
       versions may provide unique values depending on the error.]
-      is returned as the exit code, where A:=0, ... Z:=25.  
 
     Examples:
 

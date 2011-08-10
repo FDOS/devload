@@ -195,6 +195,7 @@
 ; Version 3.25 05/8/2011 - Jeremy: fix bug where initial CDS not checked,
 ;                          adjust return codes to account for char devices
 
+CPU 8086                        ; ensure only 8086 compatible instructions
 ; .............................IMPROVEMENT IDEAS.............................
 
 
@@ -2029,8 +2030,8 @@ quiet:          or      byte [cs:ModeFlag],QuietFlag
 
         ; Set initial drive letter to assign device to (or 1st available after this one)
 driveletter:
-                lodsb           ; get drive letter, spaces before it are not supported e.g. /DS
-                sub     al,65   ; convert letter to 0 based #, cmd line upcased above so -'A'
+                lodsb                   ; get drive letter, spaces before it are not supported e.g. /DS
+                sub     al,65           ; convert letter to 0 based #, cmd line upcased above so -'A'
                 mov     [CS:LastDrUsed], al
                 jmp     short switchloop
 
