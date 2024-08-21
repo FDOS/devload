@@ -1163,7 +1163,7 @@ InstallDevice:  mov     [cs:NewDrvOfs],si
 	; Use subunit number 0, as DI1000DD block checks even for INIT
 
 		xor	ax,ax
-                mov     word [RqHdr+2],ax	; command, subunit
+                mov     word [RqHdr+1],ax	; command, subunit
 
         ; Insert default end of driver address = start of driver.
 	; *** changed to default to "available paras * 10h" for ***
@@ -1345,6 +1345,7 @@ nextblk:        mov     si,[bx]	; explicit segment in 3.16
                 inc     bx
 
         ; Check sector size.
+		; (WARNING! DRIVER.SYS is a block driver that doesn't init BPB in request header
 
                 mov     ax,[si]	; explicit segment in 3.16
                 cmp     ax,[cs:SecSize]
